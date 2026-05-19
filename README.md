@@ -1,88 +1,171 @@
-# 🏪 Sitecore Marketplace Starter
+# XMC Public Link Tracker
 
-This project is the starter template for building Sitecore Marketplace extensions. It demonstrates five extension points: **Custom Field**, **Dashboard Widget**, **Fullscreen**, **Pages Context Panel**, and **Standalone**. Each extension point has its own UI and integration with the Sitecore Marketplace SDK.
-
-## 🧩 Extension Points
-
-### 1. Custom Field Extension
-
-- **Location:** `app/custom-field-extension/page.tsx`
-- **Description:**  
-  Provides a button-based UI for selecting preset options to showcase how to update field values.
-  - Initializes the Marketplace SDK client.
-  - On button click,, updates the field value using client.setValue(selected) and closes the app after a short delay.
+A Sitecore Marketplace standalone extension that scans an XM Cloud instance via
+Experience Edge GraphQL to find all Sitecore Public Link asset references across
+pages, displays results in a filterable table, and exports to Excel — structured
+for future Content Hub import.
 
 ---
 
-### 2. Dashboard Widget Extension
+## What This App Does
 
-- **Location:** `app/dashboard-widget-extension/page.tsx`
-- **Description:**  
-  Displays a widget in the XM Cloud dashboard.
-  - Initializes the Marketplace SDK client.
-  - Displays sample dashboard information.
-
----
-
-### 3. Fullscreen Extension
-
-- **Location:** `app/fullscreen-extension/page.tsx`
-- **Description:**  
-  Provides a fullscreen experience to be rendered in the Pages application.
-  - Initializes the Marketplace SDK client.
-  - Displays sample dashboard information.
+1. **Connects** to your XM Cloud tenant via the Marketplace SDK (no API keys
+   required — auth is handled by the SDK).
+2. **Loads** all sites from your XMC instance.
+3. **Scans** selected sites page-by-page, inspecting every field value for
+   Public Link URLs matching three known patterns.
+4. **Checks** HTTP status for every unique Public Link URL (server-side, no
+   CORS issues).
+5. **Calculates** risk levels based on reference frequency and HTTP status.
+6. **Exports** a two-sheet Excel file ready for Content Hub Step 2 import.
 
 ---
 
-### 4. Pages Context Panel Extension
+## Prerequisites
 
-- **Location:** `app/pages-contextpanel-extension/page.tsx`
-- **Description:**  
-  Displays context information about the current page in the XM Cloud Pages editor.
-  - Initializes the Marketplace SDK client.
-  - Subscribes to `pages.context` using the SDK to handle events.
-  - Shows page ID, title, language, and path.
-  - Updates data automatically as the user changes selected page.
+- Node.js 18+
+- An active Sitecore XM Cloud instance
+- A Marketplace app registered in the Sitecore Cloud Portal (see Setup below)
 
 ---
 
-### 5. Standalone Extension
+## Setup
 
-- **Location:** `app/standalone-extension/page.tsx`
-- **Description:**  
-  Runs as a standalone app outside of other extension points.
-  - Initializes the Marketplace SDK client.
-  - Displays sample dashboard information.
+### 1. Clone from the Marketplace Starter template
 
-# 📦 Getting Started
+```bash
+git clone https://github.com/Sitecore/marketplace-starter xmc-public-link-tracker
+cd xmc-public-link-tracker
+```
 
-Note: You cannot access extension point routes directly in the browser (e.g., localhost:3000/...). These routes must be invoked within the Sitecore XM Cloud environment through the configured extension points.To learn how to properly configure and hook up your app to extension points, refer to the official [Sitecore Marketplace documentation](https://doc.sitecore.com/mp/en/developers/marketplace/extension-points.html)
+### 2. Keep only the standalone extension
 
+Delete all extension point folders except `standalone-extension`:
 
-1. Create Your Own Repository:
-   - You can either fork this repository or create a new template based on it.
-   - This gives you a clean starting point with all the necessary scaffolding for Marketplace extension development.
+```bash
+rm -rf src/app/custom-field-extension
+rm -rf src/app/dashboard-widget-extension
+rm -rf src/app/fullscreen-extension
+rm -rf src/app/pages-contextpanel-extension
+```
 
-2. Remove the endpoints you dont require
-   - Remove any extension points you don't plan to support by deleting their respective folders inside the app directory.
-   - Each folder in app corresponds to a specific extension point (e.g., custom-field-extension, dashboard-widget-extension, etc.).
+### 3. Install dependencies
 
-3. Install dependencies:
-   ```sh
-   npm install
-   ```
+```bash
+npm install
+```
 
-4. Run the development server:
-   ```sh
-   npm run dev
-   ```
+> Packages added on top of the starter kit: `xlsx`, `axios`
 
-5. Install the application and test in the different extension points by following the [Sitecore documentation](https://doc.sitecore.com/mp/en/developers/marketplace/introduction-to-sitecore-marketplace.html)
+---
 
-## 📝 License
+## Local Development
 
-This project is licensed under the terms specified in the [LICENSE](LICENSE) file.
+```bash
+npm run dev
+```
 
-## 🐛 Issues
+> **Important:** The extension cannot be accessed directly at `localhost:3000`.
+> The Marketplace SDK communicates via `postMessage` with the parent
+> `window.parent` (the Sitecore Cloud Portal iframe host). You must register
+> the app in the Cloud Portal and open it through the portal extension frame.
 
-If you encounter any issues or have suggestions for improvements, please open an issue on the repository.
+---
+
+## Registering in Sitecore Cloud Portal
+
+1. Log in to [Sitecore Cloud Portal](https://portal.sitecorecloud.io)
+2. Navigate to **Marketplace → My Apps → Create App**
+3. Set the **App URL** to your deployed URL (or an ngrok tunnel for local dev)
+4. Select **Standalone Extension** as the extension point
+5. Save and install to your XMC organization
+
+For full instructions see the
+[official Marketplace documentation](https://doc.sitecore.com/mp/en/developers/marketplace/introduction-to-sitecore-marketplace.html).
+
+---
+
+## How to Use
+
+1. **Connect tab** — Your tenant context is auto-detected from the Marketplace
+   SDK. Select it in the dropdown, set the language (default `en`), and click
+   **Load Sites**.
+2. **Scan tab** — Check the sites you want to scan, then click **Run Scan**.
+   Progress is shown page-by-page.
+3. **Results tab** — Auto-opens when the scan finishes. Use the filter bar to
+   narrow results. Click **Download Excel** to export.
+
+---
+
+## Excel Column Reference
+
+Both sheets are generated by SheetJS. Column order is fixed for Content Hub
+Step 2 import compatibility.
+
+### Sheet 1: Public Link Usage
+
+| Column | Field            | Description                                     |
+|--------|------------------|-------------------------------------------------|
+| A      | `asset_id`       | Content Hub asset ID extracted from the URL     |
+| B      | `public_link_url`| Full public link URL                            |
+| C      | `site_name`      | XMC site name                                   |
+| D      | `page_name`      | Sitecore item name                              |
+| E      | `page_path`      | URL path of the page                            |
+| F      | `field_name`     | Field where the link was found                  |
+| G      | `http_status`    | HTTP response code (0 = timeout/error)          |
+| H      | `risk_level`     | Critical / High / Low / Broken / Unknown        |
+| I      | `language`       | Item language                                   |
+| J      | `scanned_at`     | Scan timestamp (YYYY-MM-DD HH:mm:ss)            |
+
+### Sheet 2: Summary
+
+Aggregated counts — total pages, links, broken links, critical/high-risk
+assets, sites scanned, and scan date.
+
+---
+
+## Risk Level Logic
+
+| Condition                              | Risk Level |
+|----------------------------------------|------------|
+| HTTP 404, 0 (timeout), 301, 302        | Broken     |
+| Asset referenced ≥ 15 times            | Critical   |
+| Asset referenced ≥ 5 times             | High       |
+| Asset referenced ≥ 1 time              | Low        |
+| No matching condition                  | Unknown    |
+
+---
+
+## Step 2 Note
+
+> The Excel column structure (`asset_id`, `public_link_url`, `site_name`, …) is
+> **fixed** and directly matches the Content Hub bulk import format for Step 2
+> of the DAM asset migration workflow. Do not reorder or rename columns before
+> importing.
+
+---
+
+## URL Patterns Detected
+
+The scanner recognises three Sitecore Public Link formats:
+
+1. `https://cdn.sitecore.cloud/m=p/{assetId}/...`
+2. `https://{tenant}.sitecorecloud.io/api/public/content/{assetId}`
+3. `https://{domain}/api/public/content/{assetId}`
+
+Patterns are tested via `console.assert()` self-tests on module load in
+development mode.
+
+---
+
+## Known Limitations
+
+- **In-memory only** — scan results are not persisted to disk or a database.
+  Refreshing the page clears results; re-scan to regenerate.
+- **One scan at a time** — concurrent scans are not supported.
+- **Primary language** — the language field defaults to `en`. Multi-language
+  support (comma-separated input) is wired up in the UI for future use but the
+  scanner currently processes one language per scan.
+- **Serverless incompatible** — the `/api/export` in-memory store requires a
+  persistent Node.js process (`npm run dev` or `npm start`). Not suitable for
+  Vercel/edge serverless without modification.
