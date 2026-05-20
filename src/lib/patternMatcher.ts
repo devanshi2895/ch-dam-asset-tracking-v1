@@ -1,6 +1,23 @@
 import type { PublicLinkMatch } from './types';
 
 /**
+ * Pattern 0: https://{domain}/api/gateway/{numericId}/thumbnail
+ * Content Hub gateway thumbnail URLs — the numeric segment is the canonical
+ * DAM asset ID used in Content Hub imports.
+ */
+const GATEWAY_PATTERN =
+  /https:\/\/[a-zA-Z0-9.\-_]+\/api\/gateway\/(\d+)\/thumbnail/;
+
+/**
+ * Extracts the numeric Content Hub asset ID from a gateway thumbnail URL.
+ * Returns null if the URL doesn't match the gateway pattern.
+ */
+export function extractGatewayId(thumbnailSrc: string): string | null {
+  const m = GATEWAY_PATTERN.exec(thumbnailSrc);
+  return m?.[1] ?? null;
+}
+
+/**
  * Pattern 1: https://cdn.sitecore.cloud/m=p/{assetId}/...
  * CDN-hosted Sitecore public links.
  */

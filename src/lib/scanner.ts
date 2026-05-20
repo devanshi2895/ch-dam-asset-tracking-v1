@@ -1,5 +1,6 @@
+import { ClientSDK } from '@sitecore-marketplace-sdk/client';
 import { GET_PAGES_FOR_SITE, GET_PAGE_FIELDS } from './queries';
-import { findPublicLinks } from './patternMatcher';
+import { findPublicLinks, extractGatewayId } from './patternMatcher';
 import { calculateRiskLevels } from './riskEngine';
 import { checkHttpStatuses } from './httpChecker';
 import type {
@@ -35,8 +36,8 @@ function normalizeItemId(id: string): string {
  */
 function extractComponentFields(
   rendered: unknown
-): Array<{ label: string; value: string }> {
-  const out: Array<{ label: string; value: string }> = [];
+): Array<{ label: string; value: string; overrideAssetId?: string }> {
+  const out: Array<{ label: string; value: string; overrideAssetId?: string }> = [];
 
   function walkFields(
     fields: Record<string, unknown>,
@@ -44,6 +45,25 @@ function extractComponentFields(
   ) {
     for (const [fieldName, fieldValue] of Object.entries(fields)) {
       const label = `${componentName}.${fieldName}`;
+
+      // Image field object: JSS wraps image data as { value: { thumbnailsrc, src, ... } }.
+      // Extract the numeric DAM ID from thumbnailsrc and use src as the public link URL.
+      if (fieldValue && typeof fieldValue === 'object' && !Array.isArray(fieldValue)) {
+        const fv = fieldValue as Record<string, unknown>;
+        // Support both direct shape { thumbnailsrc, src } and JSS-wrapped { value: { thumbnailsrc, src } }
+        const inner =
+          fv.value && typeof fv.value === 'object' && !Array.isArray(fv.value)
+            ? (fv.value as Record<string, unknown>)
+            : fv;
+        const thumbnailSrc = typeof inner.thumbnailsrc === 'string' ? inner.thumbnailsrc : '';
+        const src = typeof inner.src === 'string' ? inner.src : '';
+        const gatewayId = thumbnailSrc ? extractGatewayId(thumbnailSrc) : null;
+        if (gatewayId && src) {
+          out.push({ label, value: src, overrideAssetId: gatewayId });
+          continue;
+        }
+      }
+
       const str =
         fieldValue == null
           ? ''
@@ -97,13 +117,13 @@ const delay = (ms: number) =>
  * Executes a GraphQL query via the Marketplace SDK authoring mutation.
  * All auth is handled by the SDK — no API keys exposed in the browser.
  */
+// GraphQL responses are query-dependent and have no static shape — any is intentional here.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function xmcQuery(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  client: any,
+  client: ClientSDK,
   sitecoreContextId: string,
   query: string,
   variables: Record<string, unknown> = {}
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> {
   const opMatch = query.match(/query\s+(\w+)/);
   const opName = opMatch?.[1] ?? 'GraphQL';
@@ -136,9 +156,20 @@ async function xmcQuery(
  * rootPath is derived as /sitecore/content/{collectionName}/{siteName}
  * which is the standard XM Cloud Headless Site path convention.
  */
+interface RawSiteHost {
+  homePageId?: string | null;
+  targetHostname?: string | null;
+  hostnames?: string[] | null;
+}
+
+interface RawSite {
+  name?: string | null;
+  properties?: Record<string, string> | null;
+  hosts?: RawSiteHost[] | null;
+}
+
 export async function fetchSitesViaRest(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  client: any,
+  client: ClientSDK,
   sitecoreContextId: string,
   collectionId?: string
 ): Promise<SiteInfo[]> {
@@ -154,8 +185,7 @@ export async function fetchSitesViaRest(
 
   // xmc.xmapp REST calls return RequestResult<T> from @hey-api/client-fetch,
   // so the actual array is at .data.data (QueryResult wraps RequestResult).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sites: Array<any> = sitesRes?.data?.data ?? [];
+  const sites: RawSite[] = sitesRes?.data?.data ?? [];
   console.log(`raw sites count: ${sites.length}, collectionId: ${collectionId ?? 'all'}`, sites.map((s) => s.name));
 
   const mapped = sites
@@ -191,8 +221,7 @@ export async function fetchSitesViaRest(
  * Fetches all pages for a site with automatic cursor-based pagination.
  */
 async function fetchAllPages(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  client: any,
+  client: ClientSDK,
   sitecoreContextId: string,
   homeId: string,
   language: string,
@@ -252,8 +281,7 @@ async function fetchAllPages(
  */
 export async function runScan(
   config: ScanConfig,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  client: any,
+  client: ClientSDK,
   onProgress: (progress: ScanProgress) => void
 ): Promise<ScanRecord[]> {
   const allRecords: ScanRecord[] = [];
@@ -316,8 +344,10 @@ export async function runScan(
 
         // Step 4 — scan each component field for DAM URLs
         let pageMatches = 0;
-        for (const { label, value } of componentFields) {
-          const matches = findPublicLinks(value, label);
+        for (const { label, value, overrideAssetId } of componentFields) {
+          const matches = overrideAssetId
+            ? [{ assetId: overrideAssetId, publicLinkUrl: value, fieldName: label }]
+            : findPublicLinks(value, label);
           if (matches.length > 0) {
             console.log(`  ${label} → ${matches.length} match(es):`, matches.map((m) => m.publicLinkUrl));
           }

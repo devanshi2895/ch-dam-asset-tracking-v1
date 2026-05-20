@@ -26,39 +26,20 @@ export function generateExcelBuffer(records: ScanRecord[]): Uint8Array {
   const wb = XLSX.utils.book_new();
 
   // -------------------------------------------------------------------------
-  // Sheet 1: Public Link Usage
+  // Sheet 1: M.Asset
   // -------------------------------------------------------------------------
   const HEADERS = [
-    'asset_id',
-    'public_link_url',
-    'site_name',
+    'id',
     'page_name',
-    'page_path',
-    'component_name',
-    'field_name',
-    'http_status',
-    'risk_level',
-    'language',
-    'scanned_at',
+    'ComponentNameToAsset',
   ];
 
-  type RowTuple = [
-    string, string, string, string, string,
-    string, string, number | string, string, string, string,
-  ];
+  type RowTuple = [string, string, string];
 
   const dataRows: RowTuple[] = records.map((r) => [
     r.asset_id,
-    r.public_link_url,
-    r.site_name,
     r.page_name,
-    r.page_path,
-    r.component_name,
-    r.field_name,
-    r.http_status ?? '',
-    r.risk_level,
-    r.language,
-    formatDateTime(r.scanned_at),
+    `ComponentName.${r.component_name}`,
   ]);
 
   const ws1 = XLSX.utils.aoa_to_sheet([HEADERS, ...dataRows]);
@@ -84,7 +65,7 @@ export function generateExcelBuffer(records: ScanRecord[]): Uint8Array {
     }
   });
 
-  XLSX.utils.book_append_sheet(wb, ws1, 'Public Link Usage');
+  XLSX.utils.book_append_sheet(wb, ws1, 'M.Asset');
 
   // -------------------------------------------------------------------------
   // Sheet 2: Summary

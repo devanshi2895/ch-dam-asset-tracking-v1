@@ -25,17 +25,9 @@ async function getOrCreateClient(): Promise<ClientSDK> {
   return _client;
 }
 
-/**
- * Initializes the Sitecore Marketplace SDK client with the XMC module.
- *
- * - SDK is initialized at most once (singleton pattern).
- * - Fetches application.context immediately after init.
- * - Exposes both `client` and `xmcClient` (same instance) for use in context.
- *
- * Must only be called from a client component or context provider.
- */
 export function useMarketplaceClient(): MarketplaceClientState {
   const isInitializingRef = useRef(false);
+  const isInitializedRef = useRef(false);
 
   const [state, setState] = useState<MarketplaceClientState>({
     client: null,
@@ -47,7 +39,7 @@ export function useMarketplaceClient(): MarketplaceClientState {
   });
 
   const initialize = useCallback(async () => {
-    if (isInitializingRef.current || state.isInitialized) return;
+    if (isInitializingRef.current || isInitializedRef.current) return;
     isInitializingRef.current = true;
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
@@ -59,10 +51,10 @@ export function useMarketplaceClient(): MarketplaceClientState {
         const res = await client.query('application.context');
         appContext = (res?.data as ApplicationContext) ?? null;
       } catch (ctxErr) {
-        // appContext is optional — warn but don't fail init
         console.warn('[useMarketplaceClient] Could not fetch application.context:', ctxErr);
       }
 
+      isInitializedRef.current = true;
       setState({
         client,
         xmcClient: client,
@@ -83,7 +75,6 @@ export function useMarketplaceClient(): MarketplaceClientState {
     } finally {
       isInitializingRef.current = false;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

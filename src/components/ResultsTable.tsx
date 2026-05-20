@@ -19,19 +19,6 @@ interface ResultsTableProps {
   records: ScanRecord[];
 }
 
-const RISK_COLORS: Record<string, string> = {
-  Critical: '#dc2626',
-  High: '#ea580c',
-  Low: '#16a34a',
-  Broken: '#7c3aed',
-  Unknown: '#6b7280',
-};
-
-const STATUS_COLOR = (status: number | null): string => {
-  if (status === 200) return '#16a34a';
-  if (status === null) return '#9ca3af';
-  return '#dc2626';
-};
 
 /**
  * Filterable, sortable results table with client-side filtering.
@@ -237,12 +224,7 @@ export function ResultsTable({ records }: ResultsTableProps) {
               <Th label="Site" col="site_name" minWidth={100} />
               <Th label="Page" col="page_name" minWidth={120} />
               <Th label="Component" col="component_name" minWidth={140} />
-              <Th label="Field" col="field_name" minWidth={100} />
-              <Th label="Asset ID" col="asset_id" minWidth={130} />
               <th style={{ ...s.th, minWidth: 220 }}>Public Link URL</th>
-              <Th label="HTTP" col="http_status" minWidth={60} />
-              <Th label="Risk" col="risk_level" minWidth={80} />
-              <Th label="Scanned At" col="scanned_at" minWidth={140} />
             </tr>
           </thead>
           <tbody>
@@ -256,16 +238,6 @@ export function ResultsTable({ records }: ResultsTableProps) {
                 <td style={s.td}>{r.site_name}</td>
                 <td style={s.td}>{r.page_name}</td>
                 <td style={{ ...s.td, fontWeight: 500 }}>{r.component_name}</td>
-                <td style={{ ...s.td, color: '#6b7280' }}>{r.field_name}</td>
-                <td
-                  style={{
-                    ...s.td,
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                  }}
-                >
-                  {r.asset_id}
-                </td>
                 <td
                   style={{
                     ...s.td,
@@ -279,39 +251,6 @@ export function ResultsTable({ records }: ResultsTableProps) {
                   {r.public_link_url.length > 60
                     ? r.public_link_url.slice(0, 60) + '…'
                     : r.public_link_url}
-                </td>
-                <td style={{ ...s.td, textAlign: 'center' }}>
-                  <span
-                    style={{
-                      color: STATUS_COLOR(r.http_status),
-                      fontWeight: 600,
-                      fontSize: 13,
-                    }}
-                  >
-                    {r.http_status ?? '—'}
-                  </span>
-                </td>
-                <td style={s.td}>
-                  <span
-                    style={{
-                      ...s.badge,
-                      backgroundColor: (RISK_COLORS[r.risk_level] ?? '#6b7280') + '18',
-                      color: RISK_COLORS[r.risk_level] ?? '#6b7280',
-                      borderColor: (RISK_COLORS[r.risk_level] ?? '#6b7280') + '40',
-                    }}
-                  >
-                    {r.risk_level}
-                  </span>
-                </td>
-                <td
-                  style={{
-                    ...s.td,
-                    fontSize: 12,
-                    color: '#6b7280',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {r.scanned_at.replace('T', ' ').split('.')[0]}
                 </td>
               </tr>
             ))}
