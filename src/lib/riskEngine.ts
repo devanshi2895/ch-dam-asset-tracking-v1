@@ -1,4 +1,5 @@
 import type { ScanRecord } from './types';
+import { RISK_CRITICAL_THRESHOLD, RISK_HIGH_THRESHOLD } from './config';
 
 /**
  * Calculates risk levels for all scan records.
@@ -35,9 +36,9 @@ export function calculateRiskLevels(records: ScanRecord[]): ScanRecord[] {
       http_status === 302
     ) {
       risk_level = 'Broken';
-    } else if (totalReferences >= 15) {
+    } else if (totalReferences >= RISK_CRITICAL_THRESHOLD) {
       risk_level = 'Critical';
-    } else if (totalReferences >= 5) {
+    } else if (totalReferences >= RISK_HIGH_THRESHOLD) {
       risk_level = 'High';
     } else if (totalReferences >= 1) {
       risk_level = 'Low';

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateExcelBuffer } from '@/src/lib/excelExporter';
+import { EXPORT_FILENAME_PREFIX } from '@/src/lib/config';
 import type { ScanRecord } from '@/src/lib/types';
 
 /**
@@ -33,9 +34,8 @@ export async function POST(request: NextRequest) {
 
   if (contentType.includes('application/x-www-form-urlencoded')) {
     try {
-      const text = await request.text();
-      const params = new URLSearchParams(text);
-      const records: ScanRecord[] = JSON.parse(params.get('records') ?? '[]');
+      const formData = await request.formData();
+      const records: ScanRecord[] = JSON.parse((formData.get('records') as string | null) ?? '[]');
 
       if (!records.length) {
         return new NextResponse('No records to export', { status: 400 });
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
         headers: {
           'Content-Type':
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'Content-Disposition': `attachment; filename="xmc-public-links-${today}.xlsx"`,
+          'Content-Disposition': `attachment; filename="${EXPORT_FILENAME_PREFIX}-${today}.xlsx"`,
         },
       });
     } catch {
@@ -128,7 +128,7 @@ export async function GET(request: NextRequest) {
     headers: {
       'Content-Type':
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename="xmc-public-links-${today}.xlsx"`,
+      'Content-Disposition': `attachment; filename="${EXPORT_FILENAME_PREFIX}-${today}.xlsx"`,
     },
   });
 }

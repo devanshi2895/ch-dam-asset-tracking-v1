@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMarketplaceClientContext } from '@/src/context/MarketplaceClientProvider';
 import { useTenantContext } from '@/src/context/TenantContext';
 import { fetchSitesViaRest } from '@/src/lib/scanner';
+import { DEFAULT_LANGUAGE } from '@/src/lib/config';
 import type { SiteInfo } from '@/src/lib/types';
 
 interface ConfigPanelProps {
@@ -18,7 +19,7 @@ interface ConfigPanelProps {
 export function ConfigPanel({ onSitesLoaded }: ConfigPanelProps) {
   const { client } = useMarketplaceClientContext();
   const { selectedTenant } = useTenantContext();
-  const [language, setLanguage] = useState('en');
+  const [language, setLanguage] = useState(DEFAULT_LANGUAGE);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);

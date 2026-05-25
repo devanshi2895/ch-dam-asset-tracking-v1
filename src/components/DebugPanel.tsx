@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useMarketplaceClientContext } from '@/src/context/MarketplaceClientProvider';
 import { useTenantContext } from '@/src/context/TenantContext';
 import { GET_PAGES_FOR_SITE, GET_PAGE_FIELDS } from '@/src/lib/queries';
+import { DEFAULT_LANGUAGE } from '@/src/lib/config';
 
 /**
  * Developer debug panel — runs each scanner step in isolation and shows
@@ -21,7 +22,7 @@ export function DebugPanel() {
   const sitecoreContextId = selectedTenant?.context?.preview ?? '';
 
   const [homeId, setHomeId] = useState('');
-  const [language, setLanguage] = useState('en');
+  const [language, setLanguage] = useState(DEFAULT_LANGUAGE);
   const [itemId, setItemId] = useState('');
 
   const [result, setResult] = useState<unknown>(null);

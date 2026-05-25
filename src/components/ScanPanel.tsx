@@ -5,6 +5,7 @@ import { useMarketplaceClientContext } from '@/src/context/MarketplaceClientProv
 import { useTenantContext } from '@/src/context/TenantContext';
 import { ProgressIndicator } from './ProgressIndicator';
 import { runScan } from '@/src/lib/scanner';
+import { loadLastScan, saveLastScan, computeDelta } from '@/src/lib/deltaTracker';
 import type { SiteInfo, ScanRecord, ScanProgress } from '@/src/lib/types';
 
 interface ScanPanelProps {
@@ -58,18 +59,12 @@ export function ScanPanel({ sites, language, onScanComplete }: ScanPanelProps) {
         }
       );
 
-      // Store records server-side for the /api/export GET download
-      try {
-        await fetch('/api/export', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ records }),
-        });
-      } catch (storeErr) {
-        console.warn('[ScanPanel] Could not store records for export:', storeErr);
-      }
+      // Delta: diff against previous scan, then save current as new baseline
+      const lastScan = loadLastScan();
+      const deltaRecords = computeDelta(records, lastScan?.records ?? []);
+      saveLastScan(records);
 
-      onScanComplete(records);
+      onScanComplete(deltaRecords);
     } catch (err) {
       setError(
         `Scan failed: ${err instanceof Error ? err.message : String(err)}`

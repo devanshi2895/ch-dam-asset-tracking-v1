@@ -1,119 +1,161 @@
 import * as XLSX from 'xlsx';
 import type { ScanRecord } from './types';
 
-/** Formats an ISO datetime string to YYYY-MM-DD HH:mm:ss */
-function formatDateTime(isoString: string): string {
-  const d = new Date(isoString);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
-    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-  );
+/** Converts CamelCase to "Camel Case" for taxonomy labels. */
+function toHumanReadable(name: string): string {
+  return name
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2');
 }
 
-/**
- * Generates an Excel workbook from scan records.
- *
- * Sheet 1 "Public Link Usage" — one row per ScanRecord in fixed column order
- * (columns match the Content Hub Step 2 import format exactly).
- *
- * Sheet 2 "Summary" — aggregated counts.
- *
- * @param records - ScanRecord[] to export
- * @returns Uint8Array of the .xlsx file binary
- */
-export function generateExcelBuffer(records: ScanRecord[]): Uint8Array {
-  const wb = XLSX.utils.book_new();
+/** Extracts the Content Hub asset identifier from a public link URL. */
+function extractIdentifierFromUrl(url: string): string {
+  const m = /\/api\/public\/content\/([a-zA-Z0-9_\-]+)/.exec(url);
+  if (m) return m[1];
+  const m2 = /\/m=p\/([a-zA-Z0-9_\-]+)/.exec(url);
+  if (m2) return m2[1];
+  return '';
+}
 
-  // -------------------------------------------------------------------------
-  // Sheet 1: M.Asset
-  // -------------------------------------------------------------------------
-  const HEADERS = [
-    'id',
-    'page_name',
-    'ComponentNameToAsset',
-  ];
-
-  type RowTuple = [string, string, string];
-
-  const dataRows: RowTuple[] = records.map((r) => [
-    r.asset_id,
-    r.page_name,
-    `ComponentName.${r.component_name}`,
-  ]);
-
-  const ws1 = XLSX.utils.aoa_to_sheet([HEADERS, ...dataRows]);
-
-  // Freeze top row
-  ws1['!freeze'] = { xSplit: 0, ySplit: 1 };
-
-  // Auto-width: derive from content max length
-  const colWidths = HEADERS.map((h, colIdx) => {
-    const maxLen = dataRows.reduce(
+function buildSheet(
+  rows: unknown[][],
+  headers: string[]
+): XLSX.WorkSheet {
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+  const colWidths = headers.map((h, colIdx) => {
+    const maxLen = rows.reduce(
       (max, row) => Math.max(max, String(row[colIdx] ?? '').length),
       h.length
     );
     return { wch: Math.min(maxLen + 2, 80) };
   });
-  ws1['!cols'] = colWidths;
-
-  // Bold header cells
-  HEADERS.forEach((_, colIdx) => {
+  ws['!cols'] = colWidths;
+  headers.forEach((_, colIdx) => {
     const cellRef = XLSX.utils.encode_cell({ r: 0, c: colIdx });
-    if (ws1[cellRef]) {
-      ws1[cellRef].s = { font: { bold: true } };
-    }
+    if (ws[cellRef]) ws[cellRef].s = { font: { bold: true } };
   });
+  return ws;
+}
 
-  XLSX.utils.book_append_sheet(wb, ws1, 'M.Asset');
+/**
+ * Generates an Excel workbook from scan records.
+ *
+ * Sheet 1 "ComponentName" — unique component taxonomy entries
+ * Sheet 2 "PageName"      — unique page taxonomy entries
+ * Sheet 3 "M.Asset"       — one row per ScanRecord (Content Hub import format)
+ */
+export function generateExcelBuffer(records: ScanRecord[]): Uint8Array {
+  const wb = XLSX.utils.book_new();
 
   // -------------------------------------------------------------------------
-  // Sheet 2: Summary
+  // Sheet 1: ComponentName
   // -------------------------------------------------------------------------
-  const sites = new Set(records.map((r) => r.site_name));
-  const uniquePages = new Set(records.map((r) => r.page_path)).size;
-  const uniqueAssets = new Set(records.map((r) => r.asset_id)).size;
-  const uniqueComponents = new Set(records.map((r) => r.component_name).filter(Boolean)).size;
-  const brokenLinks = records.filter(
-    (r) =>
-      r.http_status === 404 ||
-      r.http_status === 0 ||
-      r.http_status === 301 ||
-      r.http_status === 302
-  ).length;
-  const criticalAssets = new Set(
-    records.filter((r) => r.risk_level === 'Critical').map((r) => r.asset_id)
-  ).size;
-  const highRiskAssets = new Set(
-    records.filter((r) => r.risk_level === 'High').map((r) => r.asset_id)
-  ).size;
+  const uniqueComponents = [
+    ...new Set(records.map((r) => r.component_name).filter(Boolean)),
+  ].sort();
 
-  const scanDate = records[0]
-    ? formatDateTime(records[0].scanned_at)
-    : new Date().toISOString().split('T')[0];
+  const compRows = uniqueComponents.map((name) => [
+    `ComponentName.${name}`,
+    toHumanReadable(name),
+    toHumanReadable(name),
+  ]);
 
-  const summaryRows = [
-    ['Metric', 'Value'],
-    ['Pages with Assets', uniquePages],
-    ['Unique Assets', uniqueAssets],
-    ['Components Using Assets', uniqueComponents],
-    ['Total References', records.length],
-    ['Broken Links', brokenLinks],
-    ['Critical Assets', criticalAssets],
-    ['High Risk Assets', highRiskAssets],
-    ['Sites Scanned', sites.size],
-    ['Scan Date', scanDate],
+  XLSX.utils.book_append_sheet(
+    wb,
+    buildSheet(compRows, ['identifier', 'TaxonomyName', 'TaxonomyLabel']),
+    'ComponentName'
+  );
+
+  // -------------------------------------------------------------------------
+  // Sheet 2: PageName
+  // -------------------------------------------------------------------------
+  const uniquePages = [
+    ...new Set(records.map((r) => r.page_name).filter(Boolean)),
+  ].sort();
+
+  const pageRows = uniquePages.map((name) => [
+    `PageName.${name}`,
+    toHumanReadable(name),
+    toHumanReadable(name),
+  ]);
+
+  XLSX.utils.book_append_sheet(
+    wb,
+    buildSheet(pageRows, ['identifier', 'TaxonomyName', 'TaxonomyLabel']),
+    'PageName'
+  );
+
+  // -------------------------------------------------------------------------
+  // Sheet 3: M.Asset
+  // -------------------------------------------------------------------------
+  const ASSET_HEADERS = [
+    'id',
+    'identifier',
+    'page_name',
+    'ComponentNameToAsset',
+    'status',
   ];
 
-  const ws2 = XLSX.utils.aoa_to_sheet(summaryRows);
-  ws2['!cols'] = [{ wch: 26 }, { wch: 22 }];
+  // Group active/new records by identifier — one row per unique asset,
+  // with PageName.* and ComponentName.* values joined by | when reused.
+  interface AssetGroup {
+    asset_id: string;
+    identifier: string;
+    pageNames: Set<string>;
+    componentNames: Set<string>;
+    hasNew: boolean;
+  }
 
-  // Bold header row
-  ['A1', 'B1'].forEach((ref) => {
-    if (ws2[ref]) ws2[ref].s = { font: { bold: true } };
-  });
+  const activeGroups = new Map<string, AssetGroup>();
+  const removedGroups = new Map<string, { asset_id: string; identifier: string }>();
 
-  XLSX.utils.book_append_sheet(wb, ws2, 'Summary');
+  for (const r of records) {
+    const key = r.identifier ?? r.asset_id;
+    const resolvedId = r.identifier ?? extractIdentifierFromUrl(r.public_link_url);
+    if (r.status === 'Removed') {
+      if (!removedGroups.has(key)) {
+        removedGroups.set(key, { asset_id: r.asset_id, identifier: resolvedId });
+      }
+    } else {
+      if (!activeGroups.has(key)) {
+        activeGroups.set(key, {
+          asset_id: r.asset_id,
+          identifier: resolvedId,
+          pageNames: new Set(),
+          componentNames: new Set(),
+          hasNew: false,
+        });
+      }
+      const g = activeGroups.get(key)!;
+      if (r.page_name) g.pageNames.add(`PageName.${r.page_name}`);
+      if (r.component_name) g.componentNames.add(`ComponentName.${r.component_name}`);
+      if (r.status === 'New') g.hasNew = true;
+    }
+  }
+
+  const assetRows: unknown[][] = [
+    ...[...activeGroups.values()].map((g) => [
+      g.asset_id,
+      g.identifier,
+      [...g.pageNames].join('|'),
+      [...g.componentNames].join('|'),
+      g.hasNew ? 'New' : 'Active',
+    ]),
+    ...[...removedGroups.values()].map((g) => [
+      g.asset_id,
+      g.identifier,
+      '',
+      '',
+      'Removed',
+    ]),
+  ];
+
+  XLSX.utils.book_append_sheet(
+    wb,
+    buildSheet(assetRows, ASSET_HEADERS),
+    'M.Asset'
+  );
 
   return XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as Uint8Array;
 }

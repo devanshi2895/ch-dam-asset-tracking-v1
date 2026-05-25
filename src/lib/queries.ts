@@ -3,6 +3,7 @@
  * schema. Site listing is done via the XMC App REST API (xmc.xmapp.listSites +
  * xmc.xmapp.listCollections) in scanner.ts fetchSitesViaRest().
  */
+import { GRAPHQL_PAGE_SIZE } from './config';
 
 /**
  * Fetches all content pages for a site using cursor-based pagination.
@@ -28,7 +29,7 @@ export const GET_PAGES_FOR_SITE = `
           { name: "_language", value: $language, operator: EQ }
         ]
       }
-      first: 50
+      first: ${GRAPHQL_PAGE_SIZE}
       after: $after
     ) {
       results {

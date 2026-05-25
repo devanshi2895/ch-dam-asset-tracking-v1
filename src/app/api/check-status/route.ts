@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const BATCH_SIZE = 20;
-const TIMEOUT_MS = 5000;
+import { CHECK_STATUS_BATCH_SIZE, CHECK_STATUS_TIMEOUT_MS } from '@/src/lib/config';
 
 interface CheckResult {
   url: string;
@@ -22,7 +20,7 @@ async function headRequest(url: string): Promise<CheckResult> {
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), CHECK_STATUS_TIMEOUT_MS);
 
   try {
     const res = await fetch(url, {
@@ -61,8 +59,8 @@ export async function POST(request: NextRequest) {
 
   const results: CheckResult[] = [];
 
-  for (let i = 0; i < urls.length; i += BATCH_SIZE) {
-    const batch = urls.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < urls.length; i += CHECK_STATUS_BATCH_SIZE) {
+    const batch = urls.slice(i, i + CHECK_STATUS_BATCH_SIZE);
     const batchResults = await Promise.all(batch.map(headRequest));
     results.push(...batchResults);
   }

@@ -79,11 +79,15 @@ function PublicLinkTrackerApp() {
     { id: 'debug', label: 'Debug', disabled: !selectedTenant },
   ];
 
+  const activeRecords = records.filter((r) => r.status !== 'Removed');
+  const hasDelta = records.some((r) => r.status !== undefined);
   const summary = {
-    pagesWithAssets: new Set(records.map((r) => r.page_path)).size,
-    uniqueAssets: new Set(records.map((r) => r.asset_id)).size,
-    componentsUsed: new Set(records.map((r) => r.component_name)).size,
-    brokenLinks: records.filter((r) => r.risk_level === 'Broken').length,
+    pagesWithAssets: new Set(activeRecords.map((r) => r.page_path)).size,
+    uniqueAssets: new Set(activeRecords.map((r) => r.asset_id)).size,
+    componentsUsed: new Set(activeRecords.map((r) => r.component_name)).size,
+    brokenLinks: activeRecords.filter((r) => r.risk_level === 'Broken').length,
+    newLinks: hasDelta ? records.filter((r) => r.status === 'New').length : undefined,
+    removedLinks: hasDelta ? records.filter((r) => r.status === 'Removed').length : undefined,
   };
 
   return (
@@ -146,6 +150,8 @@ function PublicLinkTrackerApp() {
               uniqueAssets={summary.uniqueAssets}
               componentsUsed={summary.componentsUsed}
               brokenLinks={summary.brokenLinks}
+              newLinks={summary.newLinks}
+              removedLinks={summary.removedLinks}
             />
             <ResultsTable records={records} />
           </section>

@@ -33,16 +33,20 @@ export interface PublicLinkMatch {
 
 export interface ScanRecord {
   asset_id: string;
+  /** Content Hub dam-id identifier (e.g. "ONgDpFyGQqqpYVEpF_ZhBQ"), present when the field carries a dam-id attribute. */
+  identifier?: string;
   public_link_url: string;
   site_name: string;
   page_name: string;
   page_path: string;
-  component_name: string; // rendering componentName from layout
-  field_name: string;     // field within the component
+  component_name: string;
+  field_name: string;
   http_status: number | null;
   risk_level: 'Critical' | 'High' | 'Low' | 'Broken' | 'Unknown';
   language: string;
-  scanned_at: string; // ISO datetime
+  scanned_at: string;
+  /** Set after delta comparison. Absent on first-ever scan (no baseline). */
+  status?: 'Active' | 'New' | 'Removed';
 }
 
 export interface ScanProgress {

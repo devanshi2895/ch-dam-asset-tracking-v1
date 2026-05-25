@@ -3,6 +3,7 @@ import { GET_PAGES_FOR_SITE, GET_PAGE_FIELDS } from './queries';
 import { findPublicLinks, extractGatewayId } from './patternMatcher';
 import { calculateRiskLevels } from './riskEngine';
 import { checkHttpStatuses } from './httpChecker';
+import { SCANNER_PAGE_BATCH_SIZE, SCANNER_BATCH_DELAY_MS } from './config';
 import type {
   ScanConfig,
   ScanRecord,
@@ -36,8 +37,8 @@ function normalizeItemId(id: string): string {
  */
 function extractComponentFields(
   rendered: unknown
-): Array<{ label: string; value: string; overrideAssetId?: string }> {
-  const out: Array<{ label: string; value: string; overrideAssetId?: string }> = [];
+): Array<{ label: string; value: string; overrideAssetId?: string; overrideIdentifier?: string }> {
+  const out: Array<{ label: string; value: string; overrideAssetId?: string; overrideIdentifier?: string }> = [];
 
   function walkFields(
     fields: Record<string, unknown>,
@@ -57,9 +58,10 @@ function extractComponentFields(
             : fv;
         const thumbnailSrc = typeof inner.thumbnailsrc === 'string' ? inner.thumbnailsrc : '';
         const src = typeof inner.src === 'string' ? inner.src : '';
+        const damId = typeof inner['dam-id'] === 'string' ? inner['dam-id'] : undefined;
         const gatewayId = thumbnailSrc ? extractGatewayId(thumbnailSrc) : null;
         if (gatewayId && src) {
-          out.push({ label, value: src, overrideAssetId: gatewayId });
+          out.push({ label, value: src, overrideAssetId: gatewayId, overrideIdentifier: damId });
           continue;
         }
       }
@@ -108,8 +110,6 @@ function extractComponentFields(
   return out;
 }
 
-/** Rate-limit delay between page field queries to respect Edge limits */
-const RATE_LIMIT_MS = 100;
 const delay = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -323,75 +323,64 @@ export async function runScan(
     console.log(`[scanner] pages found: ${sitePages.length}`, sitePages.map((p) => p.name));
     totalPages += sitePages.length;
 
-    // Step 3 — per page
-    for (const page of sitePages) {
-      try {
-        await delay(RATE_LIMIT_MS);
+    // Fetch PAGE_BATCH_SIZE pages concurrently, delay only between batches.
+    for (let i = 0; i < sitePages.length; i += SCANNER_PAGE_BATCH_SIZE) {
+      if (i > 0) await delay(SCANNER_BATCH_DELAY_MS);
 
-        const pageData = await xmcQuery(
-          client,
-          config.sitecoreContextId,
-          GET_PAGE_FIELDS,
-          { id: normalizeItemId(page.id), language: page.language }
-        );
+      const batch = sitePages.slice(i, i + SCANNER_PAGE_BATCH_SIZE);
 
-        // rendered is the full layout service JSON — it contains every
-        // component on the page and all field values from datasource items.
-        const rendered: unknown = pageData?.item?.rendered;
-        const componentFields = extractComponentFields(rendered);
+      await Promise.all(
+        batch.map(async (page) => {
+          try {
+            const pageData = await xmcQuery(
+              client,
+              config.sitecoreContextId,
+              GET_PAGE_FIELDS,
+              { id: normalizeItemId(page.id), language: page.language }
+            );
 
-        console.log(`[scanner] page "${page.name}" — ${componentFields.length} component field(s) from rendered`);
+            const rendered: unknown = pageData?.item?.rendered;
+            const componentFields = extractComponentFields(rendered);
 
-        // Step 4 — scan each component field for DAM URLs
-        let pageMatches = 0;
-        for (const { label, value, overrideAssetId } of componentFields) {
-          const matches = overrideAssetId
-            ? [{ assetId: overrideAssetId, publicLinkUrl: value, fieldName: label }]
-            : findPublicLinks(value, label);
-          if (matches.length > 0) {
-            console.log(`  ${label} → ${matches.length} match(es):`, matches.map((m) => m.publicLinkUrl));
+            for (const { label, value, overrideAssetId, overrideIdentifier } of componentFields) {
+              const matches = overrideAssetId
+                ? [{ assetId: overrideAssetId, publicLinkUrl: value, fieldName: label }]
+                : findPublicLinks(value, label);
+              for (const match of matches) {
+                const dotIdx = match.fieldName.indexOf('.');
+                const component_name =
+                  dotIdx > -1 ? match.fieldName.slice(0, dotIdx) : match.fieldName;
+                const field_name =
+                  dotIdx > -1 ? match.fieldName.slice(dotIdx + 1) : '';
+                allRecords.push({
+                  asset_id: match.assetId,
+                  identifier: overrideIdentifier,
+                  public_link_url: match.publicLinkUrl,
+                  site_name: page.siteName,
+                  page_name: page.name,
+                  page_path: page.path,
+                  component_name,
+                  field_name,
+                  http_status: null,
+                  risk_level: 'Unknown',
+                  language: page.language,
+                  scanned_at: new Date().toISOString(),
+                });
+              }
+            }
+          } catch (err) {
+            console.error(`[scanner] Failed to scan page "${page.id}":`, err);
           }
-          for (const match of matches) {
-            pageMatches++;
-            // match.fieldName is "ComponentName.FieldName" — split here
-            const dotIdx = match.fieldName.indexOf('.');
-            const component_name =
-              dotIdx > -1 ? match.fieldName.slice(0, dotIdx) : match.fieldName;
-            const field_name =
-              dotIdx > -1 ? match.fieldName.slice(dotIdx + 1) : '';
-            allRecords.push({
-              asset_id: match.assetId,
-              public_link_url: match.publicLinkUrl,
-              site_name: page.siteName,
-              page_name: page.name,
-              page_path: page.path,
-              component_name,
-              field_name,
-              http_status: null,
-              risk_level: 'Unknown',
-              language: page.language,
-              scanned_at: new Date().toISOString(),
-            });
-          }
-        }
-        if (pageMatches === 0) {
-          console.log(`  (no DAM links found on this page)`);
-        }
-      } catch (err) {
-        console.error(
-          `[scanner] Failed to scan page "${page.id}" (${page.path}):`,
-          err
-        );
-        // skip page, don't abort
-      }
 
-      pagesScanned++;
-      onProgress({
-        currentSite: site.name,
-        currentPage: page.name,
-        pagesScanned,
-        totalPages,
-      });
+          pagesScanned++;
+          onProgress({
+            currentSite: site.name,
+            currentPage: page.name,
+            pagesScanned,
+            totalPages,
+          });
+        })
+      );
     }
 
     console.groupEnd(); // site group
