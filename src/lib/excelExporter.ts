@@ -75,7 +75,7 @@ export function generateExcelBuffer(records: ScanRecord[]): Uint8Array {
   ].sort();
 
   const pageRows = uniquePages.map((name) => [
-    `PageName.${name}`,
+    `PageName.${name.replace(/\s+/g, '')}`,
     toHumanReadable(name),
     toHumanReadable(name),
   ]);
@@ -128,7 +128,7 @@ export function generateExcelBuffer(records: ScanRecord[]): Uint8Array {
         });
       }
       const g = activeGroups.get(key)!;
-      if (r.page_name) g.pageNames.add(`PageName.${r.page_name}`);
+      if (r.page_name) g.pageNames.add(`PageName.${r.page_name.replace(/\s+/g, '')}`);
       if (r.component_name) g.componentNames.add(`ComponentName.${r.component_name}`);
       if (r.status === 'New') g.hasNew = true;
     }
