@@ -12,7 +12,7 @@ export function saveLastScan(records: ScanRecord[]): void {
   try {
     const payload: StoredScan = {
       // Strip status before saving so we always compare against clean records
-      records: records.map(({ status: _s, ...rest }) => rest as ScanRecord),
+      records: records.map(({ status: _s, ...rest }) => rest as ScanRecord), // eslint-disable-line @typescript-eslint/no-unused-vars
       scanned_at: new Date().toISOString(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));

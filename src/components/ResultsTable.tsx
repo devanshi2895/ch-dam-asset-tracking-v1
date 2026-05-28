@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { useMarketplaceClientContext } from '@/src/context/MarketplaceClientProvider';
 import { loadLastScan } from '@/src/lib/deltaTracker';
 import type { ScanRecord } from '@/src/lib/types';
 
@@ -31,9 +30,10 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export function ResultsTable({ records }: ResultsTableProps) {
-  const { client } = useMarketplaceClientContext();
   const lastScan = useMemo(() => loadLastScan(), []);
   const hasDelta = records.some((r) => r.status !== undefined);
+
+  const [exportReady, setExportReady] = useState(false);
 
   const [filters, setFilters] = useState<FilterState>({
     siteName: '',
@@ -43,8 +43,6 @@ export function ResultsTable({ records }: ResultsTableProps) {
   const [showRemoved, setShowRemoved] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>('risk_level');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   // Derive unique filter options from the full record set
   const siteOptions = useMemo(
@@ -90,26 +88,40 @@ if (filters.assetId && !r.asset_id.toLowerCase().includes(filters.assetId.toLowe
   };
 
   const handleDownload = async () => {
-    setIsDownloading(true);
-    setDownloadError(null);
+    if (!sorted.length) return;
+
+    // Sandboxed iframes block all download initiations — detect and route differently.
+    let inIframe = false;
+    try { inIframe = window !== window.top; } catch { inIframe = true; }
+
     try {
-      // 1. Store the current filtered+sorted records on the server.
       const res = await fetch('/api/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ records: sorted }),
       });
-      if (!res.ok) throw new Error(`Store failed: ${res.status}`);
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`);
 
-      // 2. Ask the portal host to open the export URL in a new top-level tab.
-      // The download happens in the host context, not the sandboxed iframe,
-      // so the "allow-downloads" sandbox restriction doesn't apply.
-      const exportUrl = `${window.location.origin}/api/export`;
-      await client!.navigateToExternalUrl(exportUrl, true);
-    } catch (err) {
-      setDownloadError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIsDownloading(false);
+      if (inIframe) {
+        // Records are now stored server-side. Show a direct link the user
+        // can open in a real browser tab where downloads are allowed.
+        setExportReady(true);
+        return;
+      }
+
+      // Non-sandboxed: trigger download directly via blob URL.
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const today = new Date().toISOString().split('T')[0];
+      a.download = `dam-asset-report-${today}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Download failed', e);
     }
   };
 
@@ -264,12 +276,8 @@ if (filters.assetId && !r.asset_id.toLowerCase().includes(filters.assetId.toLowe
 
       {/* Download footer */}
       <div style={s.downloadRow}>
-        <button
-          style={{ ...s.downloadBtn, ...(isDownloading ? s.downloadBtnDisabled : {}) }}
-          onClick={handleDownload}
-          disabled={isDownloading}
-        >
-          {isDownloading ? 'Generating…' : 'Download Excel'}
+        <button style={s.downloadBtn} onClick={handleDownload}>
+          Download Excel
         </button>
         <div>
           <p style={s.downloadMeta}>
@@ -279,9 +287,26 @@ if (filters.assetId && !r.asset_id.toLowerCase().includes(filters.assetId.toLowe
             {uniqueSitesInView !== 1 ? 's' : ''}
           </p>
           <p style={s.importNote}>Column structure ready for Content Hub import (Step 2)</p>
-          {downloadError && <p style={s.downloadError}>{downloadError}</p>}
         </div>
       </div>
+
+      {/* Sandboxed-iframe fallback: show direct GET URL */}
+      {exportReady && (
+        <div style={s.directLinkBanner}>
+          <span style={{ fontWeight: 600 }}>Download ready.</span>
+          {' '}Downloads are blocked in this embedded preview. Open the link below in your browser:
+          <div style={{ marginTop: 6 }}>
+            <a
+              href="/api/export"
+              style={s.directLink}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {window.location.origin}/api/export
+            </a>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -366,10 +391,24 @@ const s: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     whiteSpace: 'nowrap' as const,
   },
-  downloadBtnDisabled: { backgroundColor: '#d1d5db', cursor: 'not-allowed' },
   downloadMeta: { margin: 0, fontSize: 13, color: '#374151' },
   importNote: { margin: '3px 0 0', fontSize: 11, color: '#9ca3af' },
-  downloadError: { margin: '4px 0 0', fontSize: 12, color: '#dc2626' },
+  directLinkBanner: {
+    marginTop: 12,
+    padding: '10px 14px',
+    backgroundColor: '#fefce8',
+    border: '1px solid #fde047',
+    borderRadius: 6,
+    fontSize: 13,
+    color: '#713f12',
+  },
+  directLink: {
+    display: 'inline-block',
+    fontFamily: 'monospace',
+    fontSize: 12,
+    color: '#1d4ed8',
+    wordBreak: 'break-all' as const,
+  },
   deltaBanner: {
     display: 'flex',
     alignItems: 'center',

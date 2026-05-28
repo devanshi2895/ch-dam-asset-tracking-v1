@@ -119,12 +119,13 @@ const delay = (ms: number) =>
  */
 // GraphQL responses are query-dependent and have no static shape — any is intentional here.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+type XmcQueryData = any;
 async function xmcQuery(
   client: ClientSDK,
   sitecoreContextId: string,
   query: string,
   variables: Record<string, unknown> = {}
-): Promise<any> {
+): Promise<XmcQueryData> {
   const opMatch = query.match(/query\s+(\w+)/);
   const opName = opMatch?.[1] ?? 'GraphQL';
   console.group(`[scanner] ${opName}`);
