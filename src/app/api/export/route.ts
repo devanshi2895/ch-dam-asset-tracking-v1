@@ -32,7 +32,7 @@ let storedRecords: ScanRecord[] = [];
 export async function POST(request: NextRequest) {
   const contentType = request.headers.get('content-type') ?? '';
 
-  if (contentType.includes('application/x-www-form-urlencoded')) {
+  if (contentType.includes('multipart/form-data') || contentType.includes('application/x-www-form-urlencoded')) {
     try {
       const formData = await request.formData();
       const records: ScanRecord[] = JSON.parse((formData.get('records') as string | null) ?? '[]');
@@ -56,13 +56,25 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // JSON: store records for GET
+  // JSON: generate and return Excel directly
   try {
     const body = await request.json();
-    storedRecords = Array.isArray(body?.records)
+    const records: ScanRecord[] = Array.isArray(body?.records)
       ? (body.records as ScanRecord[])
       : [];
-    return NextResponse.json({ stored: storedRecords.length });
+    if (!records.length) {
+      return new NextResponse('No records to export', { status: 400 });
+    }
+    storedRecords = records; // keep in sync for GET if needed
+    const buffer = generateExcelBuffer(records);
+    const today = new Date().toISOString().split('T')[0];
+    return new NextResponse(Buffer.from(buffer), {
+      headers: {
+        'Content-Type':
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${EXPORT_FILENAME_PREFIX}-${today}.xlsx"`,
+      },
+    });
   } catch {
     return NextResponse.json({ error: 'Invalid body' }, { status: 400 });
   }
