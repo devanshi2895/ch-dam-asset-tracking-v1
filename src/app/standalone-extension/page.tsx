@@ -9,6 +9,7 @@ import { ScanPanel } from '@/src/components/ScanPanel';
 import { SummaryStrip } from '@/src/components/SummaryStrip';
 import { ResultsTable } from '@/src/components/ResultsTable';
 import { DebugPanel } from '@/src/components/DebugPanel';
+import { SHOW_DEBUG_PANEL } from '@/src/lib/config';
 import type { SiteInfo, ScanRecord } from '@/src/lib/types';
 
 type TabId = 'connect' | 'scan' | 'results' | 'debug';
@@ -76,7 +77,7 @@ function PublicLinkTrackerApp() {
       disabled: !selectedTenant || sites.length === 0,
     },
     { id: 'results', label: '3. Results', disabled: records.length === 0 },
-    { id: 'debug', label: 'Debug', disabled: !selectedTenant },
+    ...(SHOW_DEBUG_PANEL ? [{ id: 'debug' as TabId, label: 'Debug', disabled: !selectedTenant }] : []),
   ];
 
   const activeRecords = records.filter((r) => r.status !== 'Removed');
@@ -85,7 +86,6 @@ function PublicLinkTrackerApp() {
     pagesWithAssets: new Set(activeRecords.map((r) => r.page_path)).size,
     uniqueAssets: new Set(activeRecords.map((r) => r.asset_id)).size,
     componentsUsed: new Set(activeRecords.map((r) => r.component_name)).size,
-    brokenLinks: activeRecords.filter((r) => r.risk_level === 'Broken').length,
     newLinks: hasDelta ? records.filter((r) => r.status === 'New').length : undefined,
     removedLinks: hasDelta ? records.filter((r) => r.status === 'Removed').length : undefined,
   };
@@ -149,7 +149,6 @@ function PublicLinkTrackerApp() {
               pagesWithAssets={summary.pagesWithAssets}
               uniqueAssets={summary.uniqueAssets}
               componentsUsed={summary.componentsUsed}
-              brokenLinks={summary.brokenLinks}
               newLinks={summary.newLinks}
               removedLinks={summary.removedLinks}
             />
@@ -157,7 +156,7 @@ function PublicLinkTrackerApp() {
           </section>
         )}
 
-        {activeTab === 'debug' && (
+        {SHOW_DEBUG_PANEL && activeTab === 'debug' && (
           <section style={s.section}>
             <h2 style={s.sectionTitle}>Debug — Raw API Tester</h2>
             <DebugPanel />

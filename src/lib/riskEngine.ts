@@ -7,13 +7,12 @@ import { RISK_CRITICAL_THRESHOLD, RISK_HIGH_THRESHOLD } from './config';
  * then applies risk rules per record.
  *
  * Rules (evaluated top-to-bottom, first match wins):
- *   http_status 404 | 0 | 301 | 302 → 'Broken'
- *   totalReferences >= 15            → 'Critical'
- *   totalReferences >= 5             → 'High'
- *   totalReferences >= 1             → 'Low'
- *   default                          → 'Unknown'
+ *   totalReferences >= 15 → 'Critical'
+ *   totalReferences >= 5  → 'High'
+ *   totalReferences >= 1  → 'Low'
+ *   default               → 'Unknown'
  *
- * @param records - ScanRecord[] with http_status already populated
+ * @param records - ScanRecord[]
  * @returns Updated records with risk_level set on each
  */
 export function calculateRiskLevels(records: ScanRecord[]): ScanRecord[] {
@@ -24,19 +23,12 @@ export function calculateRiskLevels(records: ScanRecord[]): ScanRecord[] {
   }
 
   return records.map((record) => {
-    const { http_status, asset_id } = record;
+    const { asset_id } = record;
     const totalReferences = refCounts.get(asset_id) ?? 0;
 
     let risk_level: ScanRecord['risk_level'];
 
-    if (
-      http_status === 404 ||
-      http_status === 0 ||
-      http_status === 301 ||
-      http_status === 302
-    ) {
-      risk_level = 'Broken';
-    } else if (totalReferences >= RISK_CRITICAL_THRESHOLD) {
+    if (totalReferences >= RISK_CRITICAL_THRESHOLD) {
       risk_level = 'Critical';
     } else if (totalReferences >= RISK_HIGH_THRESHOLD) {
       risk_level = 'High';

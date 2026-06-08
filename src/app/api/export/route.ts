@@ -99,7 +99,6 @@ export async function GET(request: NextRequest) {
         siteName: string;
         componentName: string;
         riskLevel: string;
-        httpStatus: string;
         assetId: string;
       }> = JSON.parse(decodeURIComponent(filterParam));
 
@@ -107,11 +106,6 @@ export async function GET(request: NextRequest) {
         if (filter.siteName && r.site_name !== filter.siteName) return false;
         if (filter.componentName && r.component_name !== filter.componentName) return false;
         if (filter.riskLevel && r.risk_level !== filter.riskLevel) return false;
-        if (
-          filter.httpStatus &&
-          String(r.http_status ?? '') !== filter.httpStatus
-        )
-          return false;
         if (
           filter.assetId &&
           !r.asset_id.toLowerCase().includes(filter.assetId.toLowerCase())

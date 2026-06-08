@@ -41,8 +41,7 @@ export interface ScanRecord {
   page_path: string;
   component_name: string;
   field_name: string;
-  http_status: number | null;
-  risk_level: 'Critical' | 'High' | 'Low' | 'Broken' | 'Unknown';
+  risk_level: 'Critical' | 'High' | 'Low' | 'Unknown';
   language: string;
   scanned_at: string;
   /** Set after delta comparison. Absent on first-ever scan (no baseline). */
@@ -63,7 +62,6 @@ export interface ScanState {
   summary: {
     totalPages: number;
     totalLinks: number;
-    brokenLinks: number;
     criticalAssets: number;
   };
   error?: string;

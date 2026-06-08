@@ -39,22 +39,6 @@ export const GRAPHQL_PAGE_SIZE = int(
 );
 
 // ---------------------------------------------------------------------------
-// HTTP status checker (server-side only — API route)
-// ---------------------------------------------------------------------------
-
-/** Concurrent HEAD requests per batch */
-export const CHECK_STATUS_BATCH_SIZE = int(
-  process.env.CHECK_STATUS_BATCH_SIZE,
-  20
-);
-
-/** Milliseconds before a single HEAD request is aborted */
-export const CHECK_STATUS_TIMEOUT_MS = int(
-  process.env.CHECK_STATUS_TIMEOUT_MS,
-  5000
-);
-
-// ---------------------------------------------------------------------------
 // Risk engine (server-side only)
 // ---------------------------------------------------------------------------
 
@@ -74,6 +58,10 @@ export const RISK_HIGH_THRESHOLD = int(process.env.RISK_HIGH_THRESHOLD, 5);
 /** Default language code shown in the language input on first load */
 export const DEFAULT_LANGUAGE =
   process.env.NEXT_PUBLIC_DEFAULT_LANGUAGE?.trim() || 'en';
+
+/** Set to 'true' to show the Debug tab in the UI (default: hidden) */
+export const SHOW_DEBUG_PANEL =
+  process.env.NEXT_PUBLIC_SHOW_DEBUG_PANEL?.trim() === 'true';
 
 // ---------------------------------------------------------------------------
 // Content Hub

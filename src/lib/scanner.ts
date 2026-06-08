@@ -2,7 +2,6 @@ import { ClientSDK } from '@sitecore-marketplace-sdk/client';
 import { GET_PAGES_FOR_SITE, GET_PAGE_FIELDS } from './queries';
 import { findPublicLinks, extractGatewayId } from './patternMatcher';
 import { calculateRiskLevels } from './riskEngine';
-import { checkHttpStatuses } from './httpChecker';
 import { SCANNER_PAGE_BATCH_SIZE, SCANNER_BATCH_DELAY_MS } from './config';
 import type {
   ScanConfig,
@@ -268,9 +267,7 @@ async function fetchAllPages(
  *   2. For each site: fetch all pages (paginated)
  *   3. For each page: fetch all fields (with 100ms delay)
  *   4. Run pattern matcher on both value and jsonValue of each field
- *   5. After all pages: batch HTTP status check all unique URLs
- *   6. Apply statuses and calculate risk levels
- *   7. Return final ScanRecord[]
+ *   5. Calculate risk levels and return final ScanRecord[]
  *
  * Error handling: single page/site failures are logged and skipped —
  * the full scan is never aborted by a single failure.
@@ -278,7 +275,7 @@ async function fetchAllPages(
  * @param config      - Sites, language, and sitecoreContextId
  * @param client      - Initialized Marketplace SDK ClientSDK instance
  * @param onProgress  - Callback invoked after every page scanned
- * @returns           - Final ScanRecord[] with http_status and risk_level set
+ * @returns           - Final ScanRecord[] with risk_level set
  */
 export async function runScan(
   config: ScanConfig,
@@ -362,7 +359,6 @@ export async function runScan(
                   page_path: page.path,
                   component_name,
                   field_name,
-                  http_status: null,
                   risk_level: 'Unknown',
                   language: page.language,
                   scanned_at: new Date().toISOString(),
@@ -387,18 +383,7 @@ export async function runScan(
     console.groupEnd(); // site group
   }
 
-  // Step 5 — batch HTTP status checks for all unique URLs
-  const uniqueUrls = [
-    ...new Set(allRecords.map((r) => r.public_link_url)),
-  ];
-  const statusMap = await checkHttpStatuses(uniqueUrls);
-
-  // Step 6 — apply statuses
-  for (const record of allRecords) {
-    record.http_status = statusMap.get(record.public_link_url) ?? null;
-  }
-
-  // Step 7 — calculate risk levels and return
+  // Step 5 — calculate risk levels and return
   const final = calculateRiskLevels(allRecords);
   console.log(`[scanner] scan complete — ${final.length} total record(s)`);
   return final;
