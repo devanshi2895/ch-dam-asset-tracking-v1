@@ -4,7 +4,6 @@ interface SummaryStripProps {
   pagesWithAssets: number;
   uniqueAssets: number;
   componentsUsed: number;
-  brokenLinks: number;
   newLinks?: number;
   removedLinks?: number;
 }
@@ -13,7 +12,6 @@ export function SummaryStrip({
   pagesWithAssets,
   uniqueAssets,
   componentsUsed,
-  brokenLinks,
   newLinks,
   removedLinks,
 }: SummaryStripProps) {
@@ -23,7 +21,6 @@ export function SummaryStrip({
     { label: 'Pages with Assets', value: pagesWithAssets, color: '#1a1a1a' },
     { label: 'Unique Assets', value: uniqueAssets, color: '#1a1a1a' },
     { label: 'Components Using Assets', value: componentsUsed, color: '#1a1a1a' },
-    { label: 'Broken Links', value: brokenLinks, color: brokenLinks > 0 ? '#dc2626' : '#1a1a1a' },
     ...(hasDelta ? [
       { label: 'New Links', value: newLinks ?? 0, color: (newLinks ?? 0) > 0 ? '#2563eb' : '#1a1a1a' },
       { label: 'Removed Links', value: removedLinks ?? 0, color: (removedLinks ?? 0) > 0 ? '#dc2626' : '#1a1a1a' },
