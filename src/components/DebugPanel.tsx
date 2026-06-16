@@ -6,6 +6,23 @@ import { useTenantContext } from '@/src/context/TenantContext';
 import { GET_PAGES_FOR_SITE, GET_PAGE_FIELDS } from '@/src/lib/queries';
 import { DEFAULT_LANGUAGE } from '@/src/lib/config';
 
+// ---------------------------------------------------------------------------
+// CH debug proxy helper
+// ---------------------------------------------------------------------------
+
+async function chRequest(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<unknown> {
+  const res = await fetch('/api/ch-debug', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ method, path, body }),
+  });
+  return res.json();
+}
+
 /**
  * Developer debug panel — runs each scanner step in isolation and shows
  * the raw API response so query issues can be diagnosed without a full scan.
@@ -25,9 +42,20 @@ export function DebugPanel() {
   const [language, setLanguage] = useState(DEFAULT_LANGUAGE);
   const [itemId, setItemId] = useState('');
 
+  // XMC debug state
   const [result, setResult] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const [activeStep, setActiveStep] = useState<string>('');
+
+  // CH API tester state
+  const [chAssetId, setChAssetId] = useState('');
+  const [chTaxonomyId, setChTaxonomyId] = useState('PageName.BoseQuietComfort45WirelessHeadphones');
+  const [chCustomMethod, setChCustomMethod] = useState('GET');
+  const [chCustomPath, setChCustomPath] = useState('/api/entities/');
+  const [chCustomBody, setChCustomBody] = useState('');
+  const [chResult, setChResult] = useState<unknown>(null);
+  const [chLoading, setChLoading] = useState(false);
+  const [chActiveStep, setChActiveStep] = useState<string>('');
 
   async function run(label: string, fn: () => Promise<unknown>) {
     setLoading(true);
@@ -86,6 +114,77 @@ export function DebugPanel() {
     );
 
   const canRun = !!client && !!sitecoreContextId && !loading;
+
+  // CH helpers
+  async function runCH(label: string, fn: () => Promise<unknown>) {
+    setChLoading(true);
+    setChActiveStep(label);
+    setChResult(null);
+    try {
+      setChResult(await fn());
+    } catch (err) {
+      setChResult({ error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setChLoading(false);
+    }
+  }
+
+  const handleGetEntity = () =>
+    runCH('GET Entity', () =>
+      chRequest('GET', `/api/entities/${chAssetId.trim()}`)
+    );
+
+  const handleCheckTaxonomy = () =>
+    runCH('Check Taxonomy Node', () =>
+      chRequest('GET', `/api/entities?query=Identifier==%27${encodeURIComponent(chTaxonomyId.trim())}%27&take=5`)
+    );
+
+  const handleListPageNameNodes = () =>
+    runCH('List PageName Taxonomy Nodes', () =>
+      chRequest('GET', `/api/entitydefinitions/PageName/entities?take=20`)
+    );
+
+  const handleListEntityDefinitions = () =>
+    runCH('List Entity Definitions', () =>
+      chRequest('GET', `/api/entitydefinitions?take=100`)
+    );
+
+  const handleCheckEntityDefinition = (defName: string) =>
+    runCH(`Check definition: ${defName}`, () =>
+      chRequest('GET', `/api/entitydefinitions/${defName}`)
+    );
+
+  const handleCustomRequest = () => {
+    let parsedBody: unknown;
+    if (chCustomBody.trim()) {
+      try {
+        parsedBody = JSON.parse(chCustomBody);
+      } catch {
+        setChResult({ error: 'Body is not valid JSON' });
+        return;
+      }
+    }
+    runCH(`${chCustomMethod} ${chCustomPath}`, () =>
+      chRequest(chCustomMethod, chCustomPath, parsedBody)
+    );
+  };
+
+  const handleTestBulkPayload = () => {
+    if (!chAssetId.trim()) { setChResult({ error: 'Enter an Asset ID first' }); return; }
+    const payload = {
+      operations: [{
+        method: 'PUT',
+        uri: `/api/entities/${chAssetId.trim()}`,
+        body: {
+          propertyValues: {
+            PageNameToAsset: { values: ['PageName.TestPage'] },
+            ComponentNameToAsset: { values: ['ComponentName.TestComponent'] },
+          },
+        },
+      }],
+    };
+    runCH('Test Bulk Payload', () => chRequest('POST', '/api/bulk', payload));
+  };
 
   return (
     <div style={s.wrapper}>
@@ -177,6 +276,157 @@ export function DebugPanel() {
           </pre>
         </div>
       )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Content Hub API Tester                                              */}
+      {/* ------------------------------------------------------------------ */}
+      <hr style={s.divider} />
+      <h3 style={s.subHeading}>Content Hub API Tester</h3>
+      <p style={s.note}>
+        Proxies requests through <code>/api/ch-debug</code> — token stays server-side.
+        Requires <code>CONTENT_HUB_BASE_URL</code> and <code>CONTENT_HUB_API_TOKEN</code> in <code>.env.local</code>.
+      </p>
+
+      {/* Preset operations */}
+      <div style={s.fields}>
+        <label style={s.label}>
+          Asset ID (numeric CH entity ID)
+          <input
+            style={{ ...s.input, maxWidth: 200 }}
+            value={chAssetId}
+            onChange={(e) => setChAssetId(e.target.value)}
+            placeholder="e.g. 38374"
+          />
+        </label>
+        <label style={s.label}>
+          Taxonomy identifier to check
+          <input
+            style={s.input}
+            value={chTaxonomyId}
+            onChange={(e) => setChTaxonomyId(e.target.value)}
+            placeholder="PageName.BoseQuietComfort45WirelessHeadphones"
+          />
+        </label>
+      </div>
+
+      <div style={s.buttons}>
+        <button
+          style={{ ...s.btn, ...(!chAssetId.trim() || chLoading ? s.btnDisabled : {}) }}
+          onClick={handleGetEntity}
+          disabled={!chAssetId.trim() || chLoading}
+          title="GET /api/entities/{id} — shows current field & relation values"
+        >
+          GET Entity
+        </button>
+        <button
+          style={{ ...s.btn, ...(!chTaxonomyId.trim() || chLoading ? s.btnDisabled : {}) }}
+          onClick={handleCheckTaxonomy}
+          disabled={!chTaxonomyId.trim() || chLoading}
+          title="Query CH for this taxonomy identifier — 0 items = needs to be created first"
+        >
+          Check Taxonomy Node
+        </button>
+        <button
+          style={{ ...s.btn, ...(chLoading ? s.btnDisabled : {}), backgroundColor: '#6b7280' }}
+          onClick={handleListPageNameNodes}
+          disabled={chLoading}
+          title="List existing PageName taxonomy entities — query DefinitionName=='PageName'"
+        >
+          List PageName Nodes
+        </button>
+        <button
+          style={{ ...s.btn, ...(chLoading ? s.btnDisabled : {}), backgroundColor: '#6b7280' }}
+          onClick={handleListEntityDefinitions}
+          disabled={chLoading}
+          title="GET /api/entitydefinitions — lists all entity definitions to find correct PageName/ComponentName names"
+        >
+          List Entity Definitions
+        </button>
+        <button
+          style={{ ...s.btn, ...(chLoading ? s.btnDisabled : {}), backgroundColor: '#6b7280' }}
+          onClick={() => handleCheckEntityDefinition('PageName')}
+          disabled={chLoading}
+          title="GET /api/entitydefinitions/PageName — verify this definition exists"
+        >
+          Check PageName Def
+        </button>
+        <button
+          style={{ ...s.btn, ...(!chAssetId.trim() || chLoading ? s.btnDisabled : {}), backgroundColor: '#7c3aed' }}
+          onClick={handleTestBulkPayload}
+          disabled={!chAssetId.trim() || chLoading}
+          title="Send a minimal test bulk payload with placeholder taxonomy values"
+        >
+          Test Bulk Payload
+        </button>
+      </div>
+
+      {/* Custom request */}
+      <div style={s.fields}>
+        <p style={{ ...s.note, marginTop: 8, fontWeight: 600, color: '#374151' }}>Custom request</p>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <label style={{ ...s.label, width: 90 }}>
+            Method
+            <select
+              style={{ ...s.input, maxWidth: 90 }}
+              value={chCustomMethod}
+              onChange={(e) => setChCustomMethod(e.target.value)}
+            >
+              <option>GET</option>
+              <option>POST</option>
+              <option>PUT</option>
+            </select>
+          </label>
+          <label style={{ ...s.label, flex: 1 }}>
+            Path
+            <input
+              style={s.input}
+              value={chCustomPath}
+              onChange={(e) => setChCustomPath(e.target.value)}
+              placeholder="/api/entities/38374"
+            />
+          </label>
+        </div>
+        <label style={s.label}>
+          Body (JSON, optional for GET)
+          <textarea
+            style={{ ...s.input, height: 100, resize: 'vertical', fontFamily: 'monospace', maxWidth: '100%' }}
+            value={chCustomBody}
+            onChange={(e) => setChCustomBody(e.target.value)}
+            placeholder={'{\n  "propertyValues": { "PageNameToAsset": { "values": ["PageName.Home"] } }\n}'}
+          />
+        </label>
+      </div>
+      <div style={s.buttons}>
+        <button
+          style={{ ...s.btn, ...(chLoading ? s.btnDisabled : {}), backgroundColor: '#1a1a1a' }}
+          onClick={handleCustomRequest}
+          disabled={chLoading}
+        >
+          Send Request
+        </button>
+      </div>
+
+      {/* CH Output */}
+      {(chLoading || chResult !== null) && (
+        <div style={s.output}>
+          <div style={s.outputHeader}>
+            <span style={s.outputLabel}>
+              {chLoading ? `Running: ${chActiveStep}…` : `Result: ${chActiveStep}`}
+            </span>
+            {chResult !== null && (
+              <button
+                style={s.copyBtn}
+                onClick={() => navigator.clipboard.writeText(JSON.stringify(chResult, null, 2))}
+              >
+                Copy JSON
+              </button>
+            )}
+          </div>
+          <pre style={s.pre}>
+            {chLoading ? '…' : JSON.stringify(chResult, null, 2)}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
@@ -239,6 +489,8 @@ const s: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     color: '#374151',
   },
+  divider: { border: 'none', borderTop: '1px solid #e5e7eb', margin: '8px 0' },
+  subHeading: { margin: 0, fontSize: 14, fontWeight: 700, color: '#1a1a1a' },
   pre: {
     margin: 0,
     padding: 12,

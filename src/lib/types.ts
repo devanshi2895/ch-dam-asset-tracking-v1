@@ -72,3 +72,17 @@ export interface ScanConfig {
   language: string;
   sitecoreContextId: string;
 }
+
+export interface OperationError {
+  asset_id: string;
+  httpStatus?: number;
+  message: string;
+}
+
+export interface BulkUpdateResult {
+  updated: number;
+  skipped: number;
+  failed: number;
+  taxonomyCreated: number;
+  errors: OperationError[];
+}

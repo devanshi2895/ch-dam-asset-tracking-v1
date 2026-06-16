@@ -2,10 +2,16 @@
 
 import { useState, useMemo } from 'react';
 import { loadLastScan } from '@/src/lib/deltaTracker';
-import type { ScanRecord } from '@/src/lib/types';
+import type { ScanRecord, BulkUpdateResult } from '@/src/lib/types';
 
 type SortKey = keyof ScanRecord;
 type SortDir = 'asc' | 'desc';
+
+type BulkUpdateState =
+  | { phase: 'idle' }
+  | { phase: 'running' }
+  | { phase: 'complete'; result: BulkUpdateResult }
+  | { phase: 'error'; message: string };
 
 interface FilterState {
   siteName: string;
@@ -34,6 +40,7 @@ export function ResultsTable({ records }: ResultsTableProps) {
   const hasDelta = records.some((r) => r.status !== undefined);
 
   const [exportReady, setExportReady] = useState(false);
+  const [updateState, setUpdateState] = useState<BulkUpdateState>({ phase: 'idle' });
 
   const [filters, setFilters] = useState<FilterState>({
     siteName: '',
@@ -85,6 +92,31 @@ if (filters.assetId && !r.asset_id.toLowerCase().includes(filters.assetId.toLowe
   const handleSort = (key: SortKey) => {
     if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     else { setSortKey(key); setSortDir('asc'); }
+  };
+
+  const handleUpdateCH = async (recordsToSend: ScanRecord[]) => {
+    if (!recordsToSend.length || updateState.phase === 'running') return;
+    setUpdateState({ phase: 'running' });
+    try {
+      const res = await fetch('/api/ch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ records: recordsToSend }),
+      });
+      const json: unknown = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const errMsg =
+          (json as Record<string, string>)?.error ?? `HTTP ${res.status}`;
+        setUpdateState({ phase: 'error', message: errMsg });
+        return;
+      }
+      setUpdateState({ phase: 'complete', result: json as BulkUpdateResult });
+    } catch (e) {
+      setUpdateState({
+        phase: 'error',
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
   };
 
   const handleDownload = async () => {
@@ -279,6 +311,32 @@ if (filters.assetId && !r.asset_id.toLowerCase().includes(filters.assetId.toLowe
         <button style={s.downloadBtn} onClick={handleDownload}>
           Download Excel
         </button>
+        <button
+          style={{
+            ...s.downloadBtn,
+            backgroundColor: updateState.phase === 'running' ? '#374151' : '#1a1a1a',
+            opacity: updateState.phase === 'running' ? 0.7 : 1,
+            cursor: updateState.phase === 'running' ? 'not-allowed' : 'pointer',
+            border: '2px dashed #6b7280',
+          }}
+          onClick={() => handleUpdateCH(sorted.slice(0, 1))}
+          disabled={updateState.phase === 'running'}
+          title={`Test with first record only: asset_id ${sorted[0]?.asset_id ?? '—'}`}
+        >
+          {updateState.phase === 'running' ? 'Updating…' : 'Test (1 record)'}
+        </button>
+        <button
+          style={{
+            ...s.downloadBtn,
+            backgroundColor: updateState.phase === 'running' ? '#1e40af' : '#1d4ed8',
+            opacity: updateState.phase === 'running' ? 0.7 : 1,
+            cursor: updateState.phase === 'running' ? 'not-allowed' : 'pointer',
+          }}
+          onClick={() => handleUpdateCH(sorted)}
+          disabled={updateState.phase === 'running'}
+        >
+          {updateState.phase === 'running' ? 'Updating…' : 'Update Content Hub'}
+        </button>
         <div>
           <p style={s.downloadMeta}>
             Includes <strong>{sorted.length}</strong> record
@@ -289,6 +347,36 @@ if (filters.assetId && !r.asset_id.toLowerCase().includes(filters.assetId.toLowe
           <p style={s.importNote}>Column structure ready for Content Hub import (Step 2)</p>
         </div>
       </div>
+
+      {/* Bulk update result banner */}
+      {updateState.phase === 'complete' && (
+        <div style={s.updateSuccessBanner}>
+          <strong>Content Hub updated.</strong>{' '}
+          Updated: {updateState.result.updated} &nbsp;|&nbsp; Taxonomy created: {updateState.result.taxonomyCreated} &nbsp;|&nbsp; Skipped: {updateState.result.skipped} &nbsp;|&nbsp; Failed: {updateState.result.failed}
+          {updateState.result.errors.length > 0 && (
+            <details style={{ marginTop: 6 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 12 }}>
+                {updateState.result.errors.length} failure{updateState.result.errors.length !== 1 ? 's' : ''} — expand for details
+              </summary>
+              <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12 }}>
+                {updateState.result.errors.slice(0, 50).map((e, i) => (
+                  <li key={i}>
+                    Asset {e.asset_id}{e.httpStatus ? ` — HTTP ${e.httpStatus}` : ''}: {e.message}
+                  </li>
+                ))}
+                {updateState.result.errors.length > 50 && (
+                  <li>…and {updateState.result.errors.length - 50} more</li>
+                )}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+      {updateState.phase === 'error' && (
+        <div style={s.updateErrorBanner}>
+          <strong>Update failed.</strong> {updateState.message}
+        </div>
+      )}
 
       {/* Sandboxed-iframe fallback: show direct GET URL */}
       {exportReady && (
@@ -393,6 +481,24 @@ const s: Record<string, React.CSSProperties> = {
   },
   downloadMeta: { margin: 0, fontSize: 13, color: '#374151' },
   importNote: { margin: '3px 0 0', fontSize: 11, color: '#9ca3af' },
+  updateSuccessBanner: {
+    marginTop: 12,
+    padding: '10px 14px',
+    backgroundColor: '#f0fdf4',
+    border: '1px solid #86efac',
+    borderRadius: 6,
+    fontSize: 13,
+    color: '#14532d',
+  },
+  updateErrorBanner: {
+    marginTop: 12,
+    padding: '10px 14px',
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fca5a5',
+    borderRadius: 6,
+    fontSize: 13,
+    color: '#7f1d1d',
+  },
   directLinkBanner: {
     marginTop: 12,
     padding: '10px 14px',
