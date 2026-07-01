@@ -51,6 +51,18 @@ export function ResultsTable({ records }: ResultsTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('risk_level');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
+  // Build asset-context lookup for enriching the CH update result banner
+  const assetContextMap = useMemo(() => {
+    const map = new Map<string, { pages: string[]; components: string[] }>();
+    for (const r of records) {
+      if (!map.has(r.asset_id)) map.set(r.asset_id, { pages: [], components: [] });
+      const ctx = map.get(r.asset_id)!;
+      if (r.page_name && !ctx.pages.includes(r.page_name)) ctx.pages.push(r.page_name);
+      if (r.component_name && !ctx.components.includes(r.component_name)) ctx.components.push(r.component_name);
+    }
+    return map;
+  }, [records]);
+
   // Derive unique filter options from the full record set
   const siteOptions = useMemo(
     () => [...new Set(records.map((r) => r.site_name))].sort(),
@@ -349,29 +361,86 @@ if (filters.assetId && !r.asset_id.toLowerCase().includes(filters.assetId.toLowe
       </div>
 
       {/* Bulk update result banner */}
-      {updateState.phase === 'complete' && (
-        <div style={s.updateSuccessBanner}>
-          <strong>Content Hub updated.</strong>{' '}
-          Updated: {updateState.result.updated} &nbsp;|&nbsp; Taxonomy created: {updateState.result.taxonomyCreated} &nbsp;|&nbsp; Skipped: {updateState.result.skipped} &nbsp;|&nbsp; Failed: {updateState.result.failed}
-          {updateState.result.errors.length > 0 && (
-            <details style={{ marginTop: 6 }}>
-              <summary style={{ cursor: 'pointer', fontSize: 12 }}>
-                {updateState.result.errors.length} failure{updateState.result.errors.length !== 1 ? 's' : ''} — expand for details
-              </summary>
-              <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12 }}>
-                {updateState.result.errors.slice(0, 50).map((e, i) => (
-                  <li key={i}>
-                    Asset {e.asset_id}{e.httpStatus ? ` — HTTP ${e.httpStatus}` : ''}: {e.message}
-                  </li>
-                ))}
-                {updateState.result.errors.length > 50 && (
-                  <li>…and {updateState.result.errors.length - 50} more</li>
+      {updateState.phase === 'complete' && (() => {
+        const r = updateState.result;
+        const assetCount = r.updatedAssets?.length ?? 0;
+        const relationCount = r.updated;
+        const skippedCount = r.skipped;
+        return (
+          <div style={s.updateSuccessBanner}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Content Hub updated successfully.</div>
+            <div style={{ display: 'flex', gap: 20, fontSize: 13, flexWrap: 'wrap' as const, marginBottom: 6 }}>
+              <span>
+                <strong>{assetCount}</strong> asset{assetCount !== 1 ? 's' : ''} updated
+                {relationCount !== assetCount && (
+                  <span style={{ color: '#6b7280', fontSize: 11 }}> ({relationCount} relation writes: page + component per asset)</span>
                 )}
-              </ul>
-            </details>
-          )}
-        </div>
-      )}
+              </span>
+              <span>
+                <strong>{r.taxonomyCreated}</strong> taxonomy entr{r.taxonomyCreated !== 1 ? 'ies' : 'y'} created
+                <span style={{ color: '#6b7280', fontSize: 11 }}> (page names &amp; component names)</span>
+              </span>
+              {skippedCount > 0 && (
+                <span><strong>{skippedCount}</strong> skipped <span style={{ color: '#6b7280', fontSize: 11 }}>(non-numeric ID or Removed status)</span></span>
+              )}
+              {r.failed > 0 && (
+                <span style={{ color: '#b91c1c' }}><strong>{r.failed}</strong> failed</span>
+              )}
+            </div>
+
+            {assetCount > 0 && (
+              <details style={{ marginTop: 4 }} open>
+                <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#166534' }}>
+                  {assetCount} asset{assetCount !== 1 ? 's' : ''} — verify in Content Hub
+                </summary>
+                <table style={{ marginTop: 6, fontSize: 12, borderCollapse: 'collapse' as const, width: '100%' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #bbf7d0', textAlign: 'left' as const }}>
+                      <th style={{ padding: '3px 8px', fontWeight: 600 }}>Asset ID</th>
+                      <th style={{ padding: '3px 8px', fontWeight: 600 }}>Page(s)</th>
+                      <th style={{ padding: '3px 8px', fontWeight: 600 }}>Component(s)</th>
+                      <th style={{ padding: '3px 8px', fontWeight: 600 }}>CH Link</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {r.updatedAssets.map((a) => {
+                      const ctx = assetContextMap.get(a.asset_id);
+                      return (
+                        <tr key={a.asset_id} style={{ borderBottom: '1px solid #dcfce7' }}>
+                          <td style={{ padding: '3px 8px', fontWeight: 600 }}>{a.asset_id}</td>
+                          <td style={{ padding: '3px 8px', color: '#374151' }}>{ctx?.pages.join(', ') || '—'}</td>
+                          <td style={{ padding: '3px 8px', color: '#374151' }}>{ctx?.components.join(', ') || '—'}</td>
+                          <td style={{ padding: '3px 8px' }}>
+                            <a href={a.chUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb' }}>
+                              Open in CH ↗
+                            </a>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </details>
+            )}
+
+            {r.errors.length > 0 && (
+              <details style={{ marginTop: 6 }}>
+                <summary style={{ cursor: 'pointer', fontSize: 12, color: '#b91c1c' }}>
+                  {r.errors.length} failure{r.errors.length !== 1 ? 's' : ''} — expand for details
+                </summary>
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12 }}>
+                  {r.errors.slice(0, 50).map((e, i) => (
+                    <li key={i}>
+                      {e.asset_id}{e.httpStatus ? ` — HTTP ${e.httpStatus}` : ''}: {e.message}
+                    </li>
+                  ))}
+                  {r.errors.length > 50 && <li>…and {r.errors.length - 50} more</li>}
+                </ul>
+              </details>
+            )}
+          </div>
+        );
+      })()}
       {updateState.phase === 'error' && (
         <div style={s.updateErrorBanner}>
           <strong>Update failed.</strong> {updateState.message}

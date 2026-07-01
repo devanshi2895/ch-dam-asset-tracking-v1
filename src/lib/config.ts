@@ -86,8 +86,11 @@ export const CONTENT_HUB_API_TOKEN =
 // Content Hub Bulk Update (server-side only)
 // ---------------------------------------------------------------------------
 
-/** Number of PUT operations per /api/bulk request — recommended range 100–500 */
-export const CH_UPDATE_BATCH_SIZE = int(process.env.CH_UPDATE_BATCH_SIZE, 200);
+/** Concurrent PUT /relations calls per batch — keep under 15 to respect CH's 15 calls/sec rate limit */
+export const CH_UPDATE_BATCH_SIZE = int(process.env.CH_UPDATE_BATCH_SIZE, 5);
+
+/** Delay between batches of CH relation PUTs (ms) — must be ≥1000ms to stay within 15 calls/sec */
+export const CH_UPDATE_BATCH_DELAY_MS = int(process.env.CH_UPDATE_BATCH_DELAY_MS, 1100);
 
 /** CH relation member name for the page taxonomy relation on M.Asset */
 export const CONTENT_HUB_PAGE_FIELD =

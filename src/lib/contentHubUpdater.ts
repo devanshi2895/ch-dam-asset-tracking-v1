@@ -1,4 +1,4 @@
-import type { ScanRecord, BulkUpdateResult, OperationError } from './types';
+import type { ScanRecord, BulkUpdateResult, OperationError, UpdatedAsset } from './types';
 
 export interface BulkUpdateOptions {
   chBaseUrl: string;
@@ -258,10 +258,12 @@ async function sendConcurrent(
   batchDelayMs: number,
   chBaseUrl: string,
   chToken: string,
-): Promise<{ updated: number; failed: number; errors: OperationError[] }> {
+): Promise<{ updated: number; failed: number; errors: OperationError[]; updatedAssets: UpdatedAsset[] }> {
   let updated = 0;
   let failed = 0;
   const errors: OperationError[] = [];
+  const seenAssetIds = new Set<string>();
+  const updatedAssets: UpdatedAsset[] = [];
 
   for (let i = 0; i < ops.length; i += concurrency) {
     const chunk = ops.slice(i, i + concurrency);
@@ -269,9 +271,17 @@ async function sendConcurrent(
 
     for (let j = 0; j < chunk.length; j++) {
       const r = results[j];
-      const label = `${chunk[j].asset_id} ${chunk[j].member}`;
+      const op = chunk[j];
+      const label = `${op.asset_id} ${op.member}`;
       if (r.ok) {
         updated++;
+        if (!seenAssetIds.has(op.asset_id)) {
+          seenAssetIds.add(op.asset_id);
+          updatedAssets.push({
+            asset_id: op.asset_id,
+            chUrl: `${chBaseUrl}/en-us/asset/${op.asset_id}`,
+          });
+        }
       } else {
         errors.push({ asset_id: label, httpStatus: r.httpStatus, message: r.message });
         failed++;
@@ -283,7 +293,7 @@ async function sendConcurrent(
     }
   }
 
-  return { updated, failed, errors };
+  return { updated, failed, errors, updatedAssets };
 }
 
 // ---------------------------------------------------------------------------
@@ -304,7 +314,7 @@ export async function runBulkUpdate(
   const { groups, skipped } = groupRecords(records);
 
   if (groups.size === 0) {
-    return { updated: 0, skipped, failed: 0, taxonomyCreated: 0, errors: [] };
+    return { updated: 0, skipped, failed: 0, taxonomyCreated: 0, errors: [], updatedAssets: [] };
   }
 
   // --- Phase 1: resolve / create taxonomy entities ---
@@ -339,5 +349,6 @@ export async function runBulkUpdate(
     failed: result.failed + taxonomyErrors.length,
     taxonomyCreated,
     errors: [...taxonomyErrors, ...result.errors],
+    updatedAssets: result.updatedAssets,
   };
 }

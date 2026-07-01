@@ -4,12 +4,12 @@ import {
   CONTENT_HUB_BASE_URL,
   CONTENT_HUB_API_TOKEN,
   CH_UPDATE_BATCH_SIZE,
+  CH_UPDATE_BATCH_DELAY_MS,
   CONTENT_HUB_PAGE_FIELD,
   CONTENT_HUB_COMPONENT_FIELD,
   CONTENT_HUB_PAGE_DEFINITION,
   CONTENT_HUB_COMPONENT_DEFINITION,
   CONTENT_HUB_CREATE_TAXONOMY,
-  SCANNER_BATCH_DELAY_MS,
 } from '@/src/lib/config';
 import type { ScanRecord } from '@/src/lib/types';
 
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
     pageDefinition: CONTENT_HUB_PAGE_DEFINITION,
     componentDefinition: CONTENT_HUB_COMPONENT_DEFINITION,
     createMissingTaxonomy: CONTENT_HUB_CREATE_TAXONOMY,
-    batchDelayMs: SCANNER_BATCH_DELAY_MS,
+    batchDelayMs: CH_UPDATE_BATCH_DELAY_MS,
   });
 
   return NextResponse.json(result);
