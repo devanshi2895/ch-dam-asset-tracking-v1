@@ -5,6 +5,8 @@ import { useMarketplaceClientContext } from '@/src/context/MarketplaceClientProv
 import { useTenantContext } from '@/src/context/TenantContext';
 import { ProgressIndicator } from './ProgressIndicator';
 import { runScan } from '@/src/lib/scanner';
+import { findPublicLinksInHTML } from '@/src/lib/patternMatcher';
+import { calculateRiskLevels } from '@/src/lib/riskEngine';
 import { loadLastScan, saveLastScan, computeDelta } from '@/src/lib/deltaTracker';
 import type { SiteInfo, ScanRecord, ScanProgress } from '@/src/lib/types';
 
@@ -29,6 +31,7 @@ export function ScanPanel({ sites, language, onScanComplete }: ScanPanelProps) {
     sites.map((s) => s.name)
   );
   const [isScanning, setIsScanning] = useState(false);
+  const [isScanningPage, setIsScanningPage] = useState(false);
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [currentSiteIndex, setCurrentSiteIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +77,70 @@ export function ScanPanel({ sites, language, onScanComplete }: ScanPanelProps) {
     }
   };
 
-  const canScan = !!client && !!selectedTenant && selectedSites.length > 0 && !isScanning;
+  /**
+   * Scans the page currently open in Page builder using getPageHTML().
+   * Complements the full batch scan — catches dynamically assembled URLs
+   * that may not appear verbatim in Layout Service field values.
+   */
+  const handleScanCurrentPage = async () => {
+    if (!client) return;
+    setIsScanningPage(true);
+    setError(null);
+
+    try {
+      // Fetch page context to populate ScanRecord metadata
+      const pagesCtxResult = await client.query('pages.context');
+      const pagesCtx = pagesCtxResult?.data;
+      const siteName = pagesCtx?.siteInfo?.name ?? 'unknown-site';
+      const pageName = pagesCtx?.pageInfo?.displayName ?? pagesCtx?.pageInfo?.name ?? 'unknown-page';
+      const pagePath = pagesCtx?.pageInfo?.path ?? pagesCtx?.pageInfo?.route ?? '';
+      const language = pagesCtx?.pageInfo?.language ?? pagesCtx?.siteInfo?.language ?? 'en';
+
+      // Get the rendered HTML of the current page
+      const html = await client.getPageHTML();
+
+      // Run pattern matcher on the rendered HTML
+      const matches = findPublicLinksInHTML(html);
+
+      const records: ScanRecord[] = matches.map((match) => {
+        const dotIdx = match.fieldName.indexOf('.');
+        const component_name =
+          dotIdx > -1 ? match.fieldName.slice(0, dotIdx) : match.fieldName;
+        const field_name =
+          dotIdx > -1 ? match.fieldName.slice(dotIdx + 1) : '';
+        return {
+          asset_id: match.assetId,
+          public_link_url: match.publicLinkUrl,
+          site_name: siteName,
+          page_name: pageName,
+          page_path: pagePath,
+          component_name,
+          field_name,
+          risk_level: 'Unknown' as const,
+          language,
+          scanned_at: new Date().toISOString(),
+        };
+      });
+
+      const withRisk = calculateRiskLevels(records);
+
+      // Delta: diff against previous scan, save current as new baseline
+      const lastScan = loadLastScan();
+      const deltaRecords = computeDelta(withRisk, lastScan?.records ?? []);
+      saveLastScan(withRisk);
+
+      onScanComplete(deltaRecords);
+    } catch (err) {
+      setError(
+        `Page scan failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    } finally {
+      setIsScanningPage(false);
+    }
+  };
+
+  const canScan = !!client && !!selectedTenant && selectedSites.length > 0 && !isScanning && !isScanningPage;
+  const canScanPage = !!client && !isScanning && !isScanningPage;
 
   return (
     <div style={s.wrapper}>
@@ -105,15 +171,26 @@ export function ScanPanel({ sites, language, onScanComplete }: ScanPanelProps) {
         ))}
       </div>
 
-      <button
-        style={{ ...s.button, ...(!canScan ? s.buttonDisabled : {}) }}
-        onClick={handleRunScan}
-        disabled={!canScan}
-      >
-        {isScanning
-          ? 'Scanning…'
-          : `Run Scan (${selectedSites.length} site${selectedSites.length !== 1 ? 's' : ''})`}
-      </button>
+      <div style={s.buttonRow}>
+        <button
+          style={{ ...s.button, ...(!canScan ? s.buttonDisabled : {}) }}
+          onClick={handleRunScan}
+          disabled={!canScan}
+        >
+          {isScanning
+            ? 'Scanning…'
+            : `Run Scan (${selectedSites.length} site${selectedSites.length !== 1 ? 's' : ''})`}
+        </button>
+
+        <button
+          style={{ ...s.buttonSecondary, ...(!canScanPage ? s.buttonDisabled : {}) }}
+          onClick={handleScanCurrentPage}
+          disabled={!canScanPage}
+          title="Scan the page currently open in Page builder using getPageHTML()"
+        >
+          {isScanningPage ? 'Scanning page…' : 'Scan Current Page'}
+        </button>
+      </div>
 
       {progress && isScanning && (
         <ProgressIndicator
@@ -130,6 +207,7 @@ export function ScanPanel({ sites, language, onScanComplete }: ScanPanelProps) {
 
 const s: Record<string, React.CSSProperties> = {
   wrapper: { display: 'flex', flexDirection: 'column', gap: 16 },
+  buttonRow: { display: 'flex', gap: 10, flexWrap: 'wrap' as const },
   siteList: { display: 'flex', flexDirection: 'column', gap: 2 },
   controls: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 },
   link: {
@@ -163,6 +241,17 @@ const s: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     alignSelf: 'flex-start',
   },
-  buttonDisabled: { backgroundColor: '#d1d5db', cursor: 'not-allowed' },
+  buttonDisabled: { backgroundColor: '#d1d5db', cursor: 'not-allowed', color: '#fff' },
+  buttonSecondary: {
+    padding: '9px 18px',
+    backgroundColor: '#fff',
+    color: '#eb1f1f',
+    border: '1.5px solid #eb1f1f',
+    borderRadius: 4,
+    fontSize: 14,
+    fontWeight: 600,
+    cursor: 'pointer',
+    alignSelf: 'flex-start',
+  },
   error: { color: '#dc2626', fontSize: 13, margin: 0 },
 };

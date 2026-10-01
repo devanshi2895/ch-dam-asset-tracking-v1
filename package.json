@@ -9,8 +9,8 @@
     "format": "prettier --write \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {
-    "@sitecore-marketplace-sdk/client": "^0.2.0",
-    "@sitecore-marketplace-sdk/xmc": "^0.2.0",
+    "@sitecore-marketplace-sdk/client": "^0.4.0",
+    "@sitecore-marketplace-sdk/xmc": "^0.4.3",
     "axios": "^1.16.0",
     "next": "^15.5.18",
     "react": "^19.1.1",
