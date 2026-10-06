@@ -83,6 +83,36 @@ export const CONTENT_HUB_API_TOKEN =
   process.env.CONTENT_HUB_API_TOKEN?.trim() ?? '';
 
 // ---------------------------------------------------------------------------
+// Content Hub Bulk Update (server-side only)
+// ---------------------------------------------------------------------------
+
+/** Concurrent PUT /relations calls per batch — keep under 15 to respect CH's 15 calls/sec rate limit */
+export const CH_UPDATE_BATCH_SIZE = int(process.env.CH_UPDATE_BATCH_SIZE, 5);
+
+/** Delay between batches of CH relation PUTs (ms) — must be ≥1000ms to stay within 15 calls/sec */
+export const CH_UPDATE_BATCH_DELAY_MS = int(process.env.CH_UPDATE_BATCH_DELAY_MS, 1100);
+
+/** CH relation member name for the page taxonomy relation on M.Asset */
+export const CONTENT_HUB_PAGE_FIELD =
+  process.env.CONTENT_HUB_PAGE_FIELD?.trim() || 'PageNameToAsset';
+
+/** CH relation member name for the component taxonomy relation on M.Asset */
+export const CONTENT_HUB_COMPONENT_FIELD =
+  process.env.CONTENT_HUB_COMPONENT_FIELD?.trim() || 'ComponentNameToAsset';
+
+/** CH entity definition name for PageName taxonomy entities */
+export const CONTENT_HUB_PAGE_DEFINITION =
+  process.env.CONTENT_HUB_PAGE_DEFINITION?.trim() || 'PageName';
+
+/** CH entity definition name for ComponentName taxonomy entities */
+export const CONTENT_HUB_COMPONENT_DEFINITION =
+  process.env.CONTENT_HUB_COMPONENT_DEFINITION?.trim() || 'ComponentName';
+
+/** When true, missing taxonomy entities are created automatically before assigning relations */
+export const CONTENT_HUB_CREATE_TAXONOMY =
+  process.env.CONTENT_HUB_CREATE_TAXONOMY?.trim() !== 'false';
+
+// ---------------------------------------------------------------------------
 // Export
 // ---------------------------------------------------------------------------
 

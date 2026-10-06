@@ -2,10 +2,16 @@
 
 import { useState, useMemo } from 'react';
 import { loadLastScan } from '@/src/lib/deltaTracker';
-import type { ScanRecord } from '@/src/lib/types';
+import type { ScanRecord, BulkUpdateResult } from '@/src/lib/types';
 
 type SortKey = keyof ScanRecord;
 type SortDir = 'asc' | 'desc';
+
+type BulkUpdateState =
+  | { phase: 'idle' }
+  | { phase: 'running' }
+  | { phase: 'complete'; result: BulkUpdateResult }
+  | { phase: 'error'; message: string };
 
 interface FilterState {
   siteName: string;
@@ -34,6 +40,7 @@ export function ResultsTable({ records }: ResultsTableProps) {
   const hasDelta = records.some((r) => r.status !== undefined);
 
   const [exportReady, setExportReady] = useState(false);
+  const [updateState, setUpdateState] = useState<BulkUpdateState>({ phase: 'idle' });
 
   const [filters, setFilters] = useState<FilterState>({
     siteName: '',
@@ -43,6 +50,18 @@ export function ResultsTable({ records }: ResultsTableProps) {
   const [showRemoved, setShowRemoved] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>('risk_level');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  // Build asset-context lookup for enriching the CH update result banner
+  const assetContextMap = useMemo(() => {
+    const map = new Map<string, { pages: string[]; components: string[] }>();
+    for (const r of records) {
+      if (!map.has(r.asset_id)) map.set(r.asset_id, { pages: [], components: [] });
+      const ctx = map.get(r.asset_id)!;
+      if (r.page_name && !ctx.pages.includes(r.page_name)) ctx.pages.push(r.page_name);
+      if (r.component_name && !ctx.components.includes(r.component_name)) ctx.components.push(r.component_name);
+    }
+    return map;
+  }, [records]);
 
   // Derive unique filter options from the full record set
   const siteOptions = useMemo(
@@ -85,6 +104,31 @@ if (filters.assetId && !r.asset_id.toLowerCase().includes(filters.assetId.toLowe
   const handleSort = (key: SortKey) => {
     if (key === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     else { setSortKey(key); setSortDir('asc'); }
+  };
+
+  const handleUpdateCH = async (recordsToSend: ScanRecord[]) => {
+    if (!recordsToSend.length || updateState.phase === 'running') return;
+    setUpdateState({ phase: 'running' });
+    try {
+      const res = await fetch('/api/ch-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ records: recordsToSend }),
+      });
+      const json: unknown = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const errMsg =
+          (json as Record<string, string>)?.error ?? `HTTP ${res.status}`;
+        setUpdateState({ phase: 'error', message: errMsg });
+        return;
+      }
+      setUpdateState({ phase: 'complete', result: json as BulkUpdateResult });
+    } catch (e) {
+      setUpdateState({
+        phase: 'error',
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
   };
 
   const handleDownload = async () => {
@@ -279,6 +323,32 @@ if (filters.assetId && !r.asset_id.toLowerCase().includes(filters.assetId.toLowe
         <button style={s.downloadBtn} onClick={handleDownload}>
           Download Excel
         </button>
+        <button
+          style={{
+            ...s.downloadBtn,
+            backgroundColor: updateState.phase === 'running' ? '#374151' : '#1a1a1a',
+            opacity: updateState.phase === 'running' ? 0.7 : 1,
+            cursor: updateState.phase === 'running' ? 'not-allowed' : 'pointer',
+            border: '2px dashed #6b7280',
+          }}
+          onClick={() => handleUpdateCH(sorted.slice(0, 1))}
+          disabled={updateState.phase === 'running'}
+          title={`Test with first record only: asset_id ${sorted[0]?.asset_id ?? '—'}`}
+        >
+          {updateState.phase === 'running' ? 'Updating…' : 'Test (1 record)'}
+        </button>
+        <button
+          style={{
+            ...s.downloadBtn,
+            backgroundColor: updateState.phase === 'running' ? '#1e40af' : '#1d4ed8',
+            opacity: updateState.phase === 'running' ? 0.7 : 1,
+            cursor: updateState.phase === 'running' ? 'not-allowed' : 'pointer',
+          }}
+          onClick={() => handleUpdateCH(sorted)}
+          disabled={updateState.phase === 'running'}
+        >
+          {updateState.phase === 'running' ? 'Updating…' : 'Update Content Hub'}
+        </button>
         <div>
           <p style={s.downloadMeta}>
             Includes <strong>{sorted.length}</strong> record
@@ -289,6 +359,93 @@ if (filters.assetId && !r.asset_id.toLowerCase().includes(filters.assetId.toLowe
           <p style={s.importNote}>Column structure ready for Content Hub import (Step 2)</p>
         </div>
       </div>
+
+      {/* Bulk update result banner */}
+      {updateState.phase === 'complete' && (() => {
+        const r = updateState.result;
+        const assetCount = r.updatedAssets?.length ?? 0;
+        const relationCount = r.updated;
+        const skippedCount = r.skipped;
+        return (
+          <div style={s.updateSuccessBanner}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Content Hub updated successfully.</div>
+            <div style={{ display: 'flex', gap: 20, fontSize: 13, flexWrap: 'wrap' as const, marginBottom: 6 }}>
+              <span>
+                <strong>{assetCount}</strong> asset{assetCount !== 1 ? 's' : ''} updated
+                {relationCount !== assetCount && (
+                  <span style={{ color: '#6b7280', fontSize: 11 }}> ({relationCount} relation writes: page + component per asset)</span>
+                )}
+              </span>
+              <span>
+                <strong>{r.taxonomyCreated}</strong> taxonomy entr{r.taxonomyCreated !== 1 ? 'ies' : 'y'} created
+                <span style={{ color: '#6b7280', fontSize: 11 }}> (page names &amp; component names)</span>
+              </span>
+              {skippedCount > 0 && (
+                <span><strong>{skippedCount}</strong> skipped <span style={{ color: '#6b7280', fontSize: 11 }}>(non-numeric ID or Removed status)</span></span>
+              )}
+              {r.failed > 0 && (
+                <span style={{ color: '#b91c1c' }}><strong>{r.failed}</strong> failed</span>
+              )}
+            </div>
+
+            {assetCount > 0 && (
+              <details style={{ marginTop: 4 }} open>
+                <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#166534' }}>
+                  {assetCount} asset{assetCount !== 1 ? 's' : ''} — verify in Content Hub
+                </summary>
+                <table style={{ marginTop: 6, fontSize: 12, borderCollapse: 'collapse' as const, width: '100%' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #bbf7d0', textAlign: 'left' as const }}>
+                      <th style={{ padding: '3px 8px', fontWeight: 600 }}>Asset ID</th>
+                      <th style={{ padding: '3px 8px', fontWeight: 600 }}>Page(s)</th>
+                      <th style={{ padding: '3px 8px', fontWeight: 600 }}>Component(s)</th>
+                      <th style={{ padding: '3px 8px', fontWeight: 600 }}>CH Link</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {r.updatedAssets.map((a) => {
+                      const ctx = assetContextMap.get(a.asset_id);
+                      return (
+                        <tr key={a.asset_id} style={{ borderBottom: '1px solid #dcfce7' }}>
+                          <td style={{ padding: '3px 8px', fontWeight: 600 }}>{a.asset_id}</td>
+                          <td style={{ padding: '3px 8px', color: '#374151' }}>{ctx?.pages.join(', ') || '—'}</td>
+                          <td style={{ padding: '3px 8px', color: '#374151' }}>{ctx?.components.join(', ') || '—'}</td>
+                          <td style={{ padding: '3px 8px' }}>
+                            <a href={a.chUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb' }}>
+                              Open in CH ↗
+                            </a>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </details>
+            )}
+
+            {r.errors.length > 0 && (
+              <details style={{ marginTop: 6 }}>
+                <summary style={{ cursor: 'pointer', fontSize: 12, color: '#b91c1c' }}>
+                  {r.errors.length} failure{r.errors.length !== 1 ? 's' : ''} — expand for details
+                </summary>
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12 }}>
+                  {r.errors.slice(0, 50).map((e, i) => (
+                    <li key={i}>
+                      {e.asset_id}{e.httpStatus ? ` — HTTP ${e.httpStatus}` : ''}: {e.message}
+                    </li>
+                  ))}
+                  {r.errors.length > 50 && <li>…and {r.errors.length - 50} more</li>}
+                </ul>
+              </details>
+            )}
+          </div>
+        );
+      })()}
+      {updateState.phase === 'error' && (
+        <div style={s.updateErrorBanner}>
+          <strong>Update failed.</strong> {updateState.message}
+        </div>
+      )}
 
       {/* Sandboxed-iframe fallback: show direct GET URL */}
       {exportReady && (
@@ -393,6 +550,24 @@ const s: Record<string, React.CSSProperties> = {
   },
   downloadMeta: { margin: 0, fontSize: 13, color: '#374151' },
   importNote: { margin: '3px 0 0', fontSize: 11, color: '#9ca3af' },
+  updateSuccessBanner: {
+    marginTop: 12,
+    padding: '10px 14px',
+    backgroundColor: '#f0fdf4',
+    border: '1px solid #86efac',
+    borderRadius: 6,
+    fontSize: 13,
+    color: '#14532d',
+  },
+  updateErrorBanner: {
+    marginTop: 12,
+    padding: '10px 14px',
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fca5a5',
+    borderRadius: 6,
+    fontSize: 13,
+    color: '#7f1d1d',
+  },
   directLinkBanner: {
     marginTop: 12,
     padding: '10px 14px',
